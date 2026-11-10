@@ -1,0 +1,24 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --color-pine: #183d36;
+  --color-sage: #edf3ee;
+  --color-surface: #f7f9f7;
+  --color-ink: #22362e;
+  --color-muted: #65766e;
+  --color-line: #e2e8e3;
+}
+
+@layer base {
+  body { margin: 0; min-width: 320px; background: var(--color-surface); color: var(--color-ink); -webkit-font-smoothing: antialiased; }
+  a, button, summary { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 3px solid #d79b45; outline-offset: 4px; }
+  ::selection { background: #cfe1d5; color: #183d36; }
+}
+
+@layer components {
+  .eyebrow { @apply mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted; }
+  .page-title { @apply text-3xl font-semibold leading-tight tracking-tight text-ink sm:text-4xl; }
+  .skip-link { @apply sr-only fixed left-4 top-4 z-50 rounded-xl bg-white p-4 text-pine focus:not-sr-only; }
+}
