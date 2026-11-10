@@ -1,0 +1,40 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+actor "Бібліотекар" as Librarian
+actor "Адміністратор" as Admin
+Admin --|> Librarian
+rectangle "Library Management System" {
+  usecase "Увійти в систему" as Login
+  usecase "Переглянути каталог і\nнаявність примірників" as Catalog
+  usecase "Зареєструвати /\nредагувати читача" as Readers
+  usecase "Видати книгу" as Issue
+  usecase "Перевірити\nдоступність примірника" as Availability
+  usecase "Зафіксувати заставу" as Deposit
+  usecase "Закрити прокат\n(повернення або втрата)" as Close
+  usecase "Розрахувати оплату,\nзнижку та штраф" as Calculate
+  usecase "Провести остаточний\nрозрахунок із заставою" as Settle
+  usecase "Переглянути прокати\nй прострочення" as Rentals
+  usecase "Сформувати звіти" as Reports
+  usecase "Керувати книгами\nі примірниками" as ManageBooks
+  usecase "Керувати категоріями\nчитачів і знижками" as ManageCategories
+  usecase "Керувати штрафними\nправилами" as ManageFines
+  usecase "Керувати працівниками" as Staff
+}
+Librarian --> Login
+Librarian --> Catalog
+Librarian --> Readers
+Librarian --> Issue
+Librarian --> Close
+Librarian --> Rentals
+Librarian --> Reports
+Admin --> ManageBooks
+Admin --> ManageCategories
+Admin --> ManageFines
+Admin --> Staff
+Issue .> Availability : <<include>>
+Issue .> Deposit : <<include>>
+Close .> Calculate : <<include>>
+Close .> Settle : <<include>>
+@enduml

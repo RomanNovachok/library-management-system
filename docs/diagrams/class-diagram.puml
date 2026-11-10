@@ -1,0 +1,119 @@
+@startuml
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+
+package "Domain" #F5F5F5 {
+  class Book {
+    +id: UUID
+    +title: string
+    +author: string
+    +dailyPrice: Decimal
+    +depositAmount: Decimal
+  }
+  class BookCopy {
+    +id: UUID
+    +status: CopyStatus
+  }
+  class Reader {
+    +id: UUID
+    +fullName: string
+  }
+  class ReaderCategory {
+    +name: string
+    +discountPercent: Decimal
+  }
+  class Rental {
+    +issuedAt: DateTime
+    +dueAt: DateTime
+    +status: RentalStatus
+    +pricePerDaySnapshot: Decimal
+    +depositSnapshot: Decimal
+    +discountPercentSnapshot: Decimal
+  }
+  class CashMovement {
+    +type: CashMovementType
+    +amount: Decimal
+  }
+  Book "1" -- "*" BookCopy
+  ReaderCategory "1" -- "*" Reader
+  Reader "1" -- "*" Rental
+  BookCopy "1" -- "*" Rental
+  Rental "1" -- "*" CashMovement
+}
+
+package "Strategy — знижки" #DFF1E5 {
+  interface DiscountStrategy <<Strategy>> {
+    +apply(subtotal: Decimal): Decimal
+  }
+  class NoDiscountStrategy <<ConcreteStrategy>>
+  class PercentageDiscountStrategy <<ConcreteStrategy>> {
+    -percent: Decimal
+  }
+  DiscountStrategy <|.. NoDiscountStrategy
+  DiscountStrategy <|.. PercentageDiscountStrategy
+}
+
+package "Observer — події" #E3EAFE {
+  interface RentalEventSubscriber <<Observer>> {
+    +handle(event: RentalEvent): void
+  }
+  class RentalEventPublisher <<Subject>> {
+    +subscribe(observer): void
+    +publish(event): void
+  }
+  class AuditLogSubscriber <<ConcreteObserver>>
+  class RentalEvent <<Event>>
+  RentalEventSubscriber <|.. AuditLogSubscriber
+  RentalEventPublisher o-- RentalEventSubscriber
+  RentalEventPublisher ..> RentalEvent
+}
+
+package "Template Method — звіти" #FFF1D6 {
+  abstract class BaseReport <<Template Method>> {
+    +generate(params): ReportResult
+    #loadData(params): any
+    #aggregate(data): any
+    #format(data): ReportResult
+  }
+  class InventoryReport
+  class RentalsReport
+  class FinancialReport
+  BaseReport <|-- InventoryReport
+  BaseReport <|-- RentalsReport
+  BaseReport <|-- FinancialReport
+}
+
+package "Factory Method — створення звітів" #FBE3E9 {
+  abstract class ReportCreator <<Creator>> {
+    +createReport(): BaseReport
+  }
+  class InventoryReportCreator <<ConcreteCreator>>
+  class RentalsReportCreator <<ConcreteCreator>>
+  class FinancialReportCreator <<ConcreteCreator>>
+  ReportCreator <|-- InventoryReportCreator
+  ReportCreator <|-- RentalsReportCreator
+  ReportCreator <|-- FinancialReportCreator
+  InventoryReportCreator ..> InventoryReport : creates
+  RentalsReportCreator ..> RentalsReport : creates
+  FinancialReportCreator ..> FinancialReport : creates
+  ReportCreator ..> BaseReport : returns
+}
+
+class RentalService {
+  +issueBook(input): Rental
+  +closeRental(input): Settlement
+}
+class ReportService {
+  +getReport(type, params): ReportResult
+}
+RentalService ..> DiscountStrategy : uses
+RentalService --> RentalEventPublisher : publishes
+RentalService ..> Rental : manages
+ReportService --> ReportCreator : uses
+note right of RentalService
+  Операції видачі / повернення
+  виконуються транзакційно.
+  Ціна, знижка, застава — snapshots.
+end note
+@enduml

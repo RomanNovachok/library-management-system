@@ -1,0 +1,89 @@
+@startuml
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+entity "StaffUser" as StaffUser {
+  * id : UUID <<PK>>
+  --
+  email : string <<UNIQUE>>
+  passwordHash : string
+  role : ADMIN | LIBRARIAN
+  isActive : boolean
+}
+entity "ReaderCategory" as ReaderCategory {
+  * id : UUID <<PK>>
+  --
+  name : string <<UNIQUE>>
+  discountPercent : Decimal
+}
+entity "Reader" as Reader {
+  * id : UUID <<PK>>
+  --
+  fullName : string
+  address : string
+  phone : string
+  categoryId : UUID <<FK>>
+}
+entity "Book" as Book {
+  * id : UUID <<PK>>
+  --
+  title : string
+  author : string
+  genre : string
+  dailyPrice : Decimal
+  depositAmount : Decimal
+  archivedAt : DateTime?
+}
+entity "BookCopy" as BookCopy {
+  * id : UUID <<PK>>
+  --
+  bookId : UUID <<FK>>
+  inventoryCode : string <<UNIQUE>>
+  status : CopyStatus
+}
+entity "DamageRule" as DamageRule {
+  * id : UUID <<PK>>
+  --
+  code : string <<UNIQUE>>
+  label : string
+  penaltyPercent : Decimal
+  outcome : AVAILABLE | MAINTENANCE | LOST
+}
+entity "Rental" as Rental {
+  * id : UUID <<PK>>
+  --
+  readerId : UUID <<FK>>
+  copyId : UUID <<FK>>
+  issuedById : UUID <<FK>>
+  closedById : UUID? <<FK>>
+  issuedAt : DateTime
+  dueAt : DateTime
+  closedAt : DateTime?
+  status : ACTIVE | RETURNED | LOST
+  pricePerDaySnapshot : Decimal
+  depositSnapshot : Decimal
+  discountPercentSnapshot : Decimal
+  rentalFee : Decimal?
+  damageFine : Decimal?
+  refundAmount : Decimal?
+  additionalPayment : Decimal?
+  damageRuleId : UUID? <<FK>>
+}
+entity "CashMovement" as CashMovement {
+  * id : UUID <<PK>>
+  --
+  rentalId : UUID <<FK>>
+  type : DEPOSIT_IN | REFUND_OUT | TOPUP_IN
+  amount : Decimal
+  createdAt : DateTime
+  recordedById : UUID <<FK>>
+}
+ReaderCategory ||--o{ Reader : categorizes
+Book ||--o{ BookCopy : copies
+Reader ||--o{ Rental : rents
+BookCopy ||--o{ Rental : history
+StaffUser ||--o{ Rental : issues
+DamageRule |o--o{ Rental : applied_on_close
+Rental ||--o{ CashMovement : movements
+StaffUser ||--o{ CashMovement : records
+@enduml
