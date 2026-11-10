@@ -3,7 +3,7 @@
 **Дисципліна:** Документування програмного забезпечення та шаблони проєктування  
 **Варіант:** 20 — Бібліотека (платний бібліотечний абонемент)
 
-> Початковий репозиторій: лише вимоги, проєктні рішення та UML-діаграми. Frontend/backend ще не ініціалізовані.
+> Backend ініціалізовано: Express API, конфігурація середовища, health-маршрут і базові тести. Frontend та бізнес-модулі ще не реалізовані.
 
 ## Призначення
 
@@ -24,9 +24,73 @@
 - Frontend: React, TypeScript, Vite, Tailwind CSS
 - Backend: Node.js, TypeScript, Express, Zod
 - Database: PostgreSQL, Prisma
-- Tests: Vitest, Supertest
+- Backend tests: вбудований `node:test` та HTTP-запити через `fetch`; Vitest/Supertest поки не підключені
 - Dev environment: Docker Compose
 - UML: PlantUML
+
+## Локальний запуск backend
+
+Потрібні **Node.js 24.x** та npm. Команди виконуються в `backend/`, який має власні `package.json` і `package-lock.json`.
+
+```powershell
+cd backend
+npm ci
+Copy-Item .env.example .env
+npm run dev
+```
+
+У Linux/macOS для копіювання використовуйте `cp .env.example .env`. Якщо `.env` уже існує, редагуйте його, не перезаписуючи власні налаштування. У Windows PowerShell, якщо запуск `npm.ps1` заблокований політикою виконання, використовуйте `npm.cmd` замість `npm`.
+
+Змінні середовища:
+
+| Змінна | Призначення |
+| --- | --- |
+| `NODE_ENV` | `development`, `test` або `production`; типово `development` |
+| `PORT` | Порт HTTP-сервера від 1 до 65535; типово `3000` |
+| `CORS_ORIGIN` | Обов'язковий точний origin frontend: протокол, хост і за потреби порт; без шляху та завершального `/` |
+
+У `.env.example` наведено лише несекретні налаштування локального запуску. `dotenv` читає `.env` із поточної папки; змінні, вже задані в середовищі процесу, мають пріоритет. Некоректна конфігурація зупиняє запуск із повідомленням про відповідне поле. `.env`, залежності та `dist/` виключено з Git.
+
+За параметрів із прикладу перевірте `http://localhost:3000/api/health` у браузері або PowerShell:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/api/health
+```
+
+Відповідь: HTTP `200`, JSON `{"status":"ok"}`. Це перевірка роботи HTTP API; з'єднання з БД ще немає. CORS дозволяє браузерне читання відповіді лише для `CORS_ORIGIN` та обробляє preflight. Запити без `Origin` працюють; CORS не замінює майбутню автентифікацію. Передавання cookies через CORS поки не ввімкнено.
+
+Команди backend:
+
+| Команда | Дія |
+| --- | --- |
+| `npm run dev` | Запуск TypeScript через `tsx watch` із перезапуском після змін коду |
+| `npm run build` | Перевірка TypeScript і збірка `src/` у `dist/` |
+| `npm start` | Запуск зібраного `dist/server.js`; спочатку виконайте збірку |
+| `npm test` | Автоматизовані HTTP-тести та перевірки конфігурації без окремого запущеного сервера чи `.env` |
+| `npm run typecheck` | Перевірка типів серверного коду та тестів без створення файлів |
+
+Для запуску зібраного застосунку виконайте `npm run build`, потім `npm start`. Після редагування `.env` перезапустіть сервер.
+
+```text
+backend/
+├── src/
+│   ├── config/env.ts              # Перевірка конфігурації через Zod
+│   ├── middleware/error-handler.ts # JSON-помилки API
+│   ├── middleware/not-found.ts    # JSON-відповідь 404
+│   ├── routes/index.ts            # Маршрути /api, наразі GET /health
+│   ├── app.ts                     # Express, CORS, JSON і middleware
+│   └── server.ts                  # Завантаження .env та запуск HTTP-сервера
+├── test/                          # HTTP-тести та валідація середовища
+├── .env.example                   # Приклад локальної конфігурації
+├── package.json / package-lock.json
+└── tsconfig.json / tsconfig.test.json
+```
+
+Залежності: `express` — HTTP API та маршрутизація; `cors` — CORS-заголовки й preflight; `dotenv` — читання `.env`; `zod` — перевірка змінних середовища. Для розробки: `typescript` — перевірка типів і компіляція; `tsx` — виконання TypeScript і watch-режим; `@types/node`, `@types/express`, `@types/cors` — декларації типів. Окрема бібліотека тестування не потрібна.
+
+Невідомі маршрути повертають JSON із HTTP `404`; некоректний JSON — `400`, перевищення ліміту тіла 100 КіБ — `413`. Непередбачені помилки повертають `500` без внутрішніх деталей у відповіді та записуються в серверну консоль. Формат помилок: `{"error":{"code":"NOT_FOUND","message":"Route not found"}}`.
+
+Prisma, PostgreSQL, Docker та налаштування хостингу будуть окремими етапами.
 
 ## Документація
 
@@ -46,7 +110,8 @@ Factory Method (генератори звітів), Template Method (проце�
 
 1. [x] Попередній аналіз і бізнес-правила
 2. [x] Початкові діаграми для обговорення
-3. [ ] Ініціалізація frontend/backend
+3. [x] Початкова ініціалізація backend
+   - [ ] Ініціалізація frontend
 4. [ ] База даних та CRUD
 5. [ ] Видача, повернення, фінансові розрахунки
 6. [ ] Звіти, панель адміністратора
