@@ -30,16 +30,32 @@ package "Domain" #F5F5F5 {
     +pricePerDaySnapshot: Decimal
     +depositSnapshot: Decimal
     +discountPercentSnapshot: Decimal
+    +readerCategorySnapshot: string
+    +damagePercentSnapshot: Decimal?
   }
   class CashMovement {
     +type: CashMovementType
     +amount: Decimal
+  }
+  class AuditLog {
+    +id: UUID
+    +actorId: UUID
+    +action: string
+    +entityType: string
+    +entityId: UUID
+    +createdAt: DateTime
+    +details: Json?
+  }
+  class StaffUser {
+    +id: UUID
+    +role: StaffRole
   }
   Book "1" -- "*" BookCopy
   ReaderCategory "1" -- "*" Reader
   Reader "1" -- "*" Rental
   BookCopy "1" -- "*" Rental
   Rental "1" -- "*" CashMovement
+  StaffUser "1" -- "*" AuditLog : performs
 }
 
 package "Strategy — знижки" #DFF1E5 {
@@ -67,6 +83,7 @@ package "Observer — події" #E3EAFE {
   RentalEventSubscriber <|.. AuditLogSubscriber
   RentalEventPublisher o-- RentalEventSubscriber
   RentalEventPublisher ..> RentalEvent
+  AuditLogSubscriber ..> AuditLog : writes
 }
 
 package "Template Method — звіти" #FFF1D6 {

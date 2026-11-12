@@ -59,7 +59,7 @@ export function AppLayout() {
         <Outlet />
       </main>
       <footer className="mx-5 flex flex-wrap justify-between gap-2 border-t border-line py-6 text-xs text-muted sm:mx-8 lg:mx-12">
-        <span>Library Management System</span><span>Навчальний проєкт · Варіант 20</span>
+        <span>Library Management System</span>
       </footer>
     </div>
   </div>;

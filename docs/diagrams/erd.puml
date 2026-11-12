@@ -63,11 +63,23 @@ entity "Rental" as Rental {
   pricePerDaySnapshot : Decimal
   depositSnapshot : Decimal
   discountPercentSnapshot : Decimal
+  readerCategorySnapshot : string
   rentalFee : Decimal?
   damageFine : Decimal?
+  damagePercentSnapshot : Decimal?
   refundAmount : Decimal?
   additionalPayment : Decimal?
   damageRuleId : UUID? <<FK>>
+}
+entity "AuditLog" as AuditLog {
+  * id : UUID <<PK>>
+  --
+  actorId : UUID <<FK>>
+  action : string
+  entityType : string
+  entityId : UUID
+  createdAt : DateTime
+  details : Json?
 }
 entity "CashMovement" as CashMovement {
   * id : UUID <<PK>>
@@ -86,4 +98,10 @@ StaffUser ||--o{ Rental : issues
 DamageRule |o--o{ Rental : applied_on_close
 Rental ||--o{ CashMovement : movements
 StaffUser ||--o{ CashMovement : records
+StaffUser ||--o{ AuditLog : performs
+note right of AuditLog
+  entityType + entityId: reference to an affected entity.
+  entityId is not a foreign key (multiple entity types).
+  AuditLog is supplementary, not a financial source of truth.
+end note
 @enduml
