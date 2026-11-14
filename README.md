@@ -71,7 +71,7 @@ docker compose exec db psql -h db -p 5432 -U library_user -d library_db -W -c "S
 psql -h localhost -p 5433 -U library_user -d library_db -W -c "SELECT 1;"
 ```
 
-Обидва запити мають повернути `1`. Якщо змінили назву БД або користувача в `.env`, підставте відповідні значення. Застосунок ще не підключений до БД; Prisma, таблиць, міграцій і тестових даних на цьому етапі немає.
+Обидва запити мають повернути `1`. Якщо змінили назву БД або користувача в `.env`, підставте відповідні значення. Prisma налаштовано в backend для наявної БД; бізнес-моделей, прикладних таблиць, міграцій і тестових даних на цьому етапі немає.
 
 Перегляд логів і зупинка:
 
@@ -106,6 +106,7 @@ npm run dev
 | `NODE_ENV` | `development`, `test` або `production`; типово `development` |
 | `PORT` | Порт HTTP-сервера від 1 до 65535; типово `3000` |
 | `CORS_ORIGIN` | Обов'язковий точний origin frontend: протокол, хост і за потреби порт; без шляху та завершального `/` |
+| `DATABASE_URL` | Приватний PostgreSQL connection URL для Prisma; приклад наведено в `backend/.env.example` |
 
 У `.env.example` наведено лише несекретні налаштування локального запуску. `dotenv` читає `.env` із поточної папки; змінні, вже задані в середовищі процесу, мають пріоритет. Некоректна конфігурація зупиняє запуск із повідомленням про відповідне поле. `.env`, залежності та `dist/` виключено з Git.
 
@@ -122,10 +123,10 @@ Invoke-RestMethod http://localhost:3000/api/health
 | Команда | Дія |
 | --- | --- |
 | `npm run dev` | Запуск TypeScript через `tsx watch` із перезапуском після змін коду |
-| `npm run build` | Перевірка TypeScript і збірка `src/` у `dist/` |
+| `npm run build` | Генерація Prisma Client, перевірка TypeScript і збірка `src/` у `dist/` |
 | `npm start` | Запуск зібраного `dist/server.js`; спочатку виконайте збірку |
 | `npm test` | Автоматизовані HTTP-тести та перевірки конфігурації без окремого запущеного сервера чи `.env` |
-| `npm run typecheck` | Перевірка типів серверного коду та тестів без створення файлів |
+| `npm run typecheck` | Генерація Prisma Client і перевірка типів серверного коду, тестів, скриптів та Prisma-конфігурації без JS-збірки |
 
 Для запуску зібраного застосунку виконайте `npm run build`, потім `npm start`. Після редагування `.env` перезапустіть сервер.
 
@@ -133,12 +134,17 @@ Invoke-RestMethod http://localhost:3000/api/health
 backend/
 ├── src/
 │   ├── config/env.ts              # Перевірка конфігурації через Zod
+│   ├── lib/prisma.ts              # Спільний Prisma Client і PostgreSQL adapter
+│   ├── generated/prisma/          # Згенерований клієнт, виключено з Git
 │   ├── middleware/error-handler.ts # JSON-помилки API
 │   ├── middleware/not-found.ts    # JSON-відповідь 404
 │   ├── routes/index.ts            # Маршрути /api, наразі GET /health
 │   ├── app.ts                     # Express, CORS, JSON і middleware
 │   └── server.ts                  # Завантаження .env та запуск HTTP-сервера
 ├── test/                          # HTTP-тести та валідація середовища
+├── scripts/check-database.ts       # Безпечна перевірка SELECT 1 через Prisma
+├── prisma/schema.prisma            # Datasource і generator без бізнес-моделей
+├── prisma7.config.ts               # Конфігурація Prisma CLI 7.10+
 ├── .env.example                   # Приклад локальної конфігурації
 ├── package.json / package-lock.json
 └── tsconfig.json / tsconfig.test.json
@@ -148,7 +154,30 @@ backend/
 
 Невідомі маршрути повертають JSON із HTTP `404`; некоректний JSON — `400`, перевищення ліміту тіла 100 КіБ — `413`. Непередбачені помилки повертають `500` без внутрішніх деталей у відповіді та записуються в серверну консоль. Формат помилок: `{"error":{"code":"NOT_FOUND","message":"Route not found"}}`.
 
-Локальний PostgreSQL запускається окремо через кореневий Compose. Підключення backend через Prisma та налаштування хостингу будуть окремими етапами.
+Локальний PostgreSQL запускається окремо через кореневий Compose. Prisma налаштовано для цього PostgreSQL; бізнес-моделі та налаштування хостингу будуть окремими етапами.
+
+## Prisma ORM у backend
+
+Встановлено стабільну **Prisma ORM 7.10.1**: CLI `prisma` у dev-залежностях, `@prisma/client` і PostgreSQL adapter `@prisma/adapter-pg` тієї самої версії у runtime-залежностях. Драйвер `pg` працює через TCP; `@types/pg` надає декларації типів. Версії Prisma зафіксовано точно, щоб оновлення не переводило проєкт на Prisma 8. Використовується наявний локальний PostgreSQL; нових хмарних сервісів немає.
+
+За [документацією Prisma 7](https://www.prisma.io/docs/v7/prisma-orm/quickstart/postgresql), `backend/prisma7.config.ts` завантажує `backend/.env` через `dotenv` та задає URL datasource. Назва `prisma7.config.ts` підтримується починаючи з 7.10. У `prisma/schema.prisma` є лише PostgreSQL datasource та генератор `prisma-client`, без моделей. Не додавайте другу конфігурацію Prisma поруч із наявною.
+
+У `backend/.env` задайте `DATABASE_URL` у форматі прикладу з `backend/.env.example`: хост `127.0.0.1`, порт `5433`, база `library_db`, користувач `library_user`. Замість `YOUR_URL_ENCODED_PASSWORD` потрібен фактичний пароль із кореневого `.env`, закодований через `encodeURIComponent`: наприклад, `@` → `%40`, `#` → `%23`, `%` → `%25`. Кодується компонент пароля, а не весь URL; не кодуйте вже закодований пароль повторно. За зміни зовнішнього порту PostgreSQL змініть його і в `DATABASE_URL`. Не виводьте повний URL у логи та не додавайте `.env` до Git. Кореневий `.env` не завантажується в backend автоматично.
+
+Команди виконуються в `backend/`, після `npm ci` і налаштування `.env`:
+
+| Команда | Призначення |
+| --- | --- |
+| `npm run prisma:validate` | Перевірити Prisma-конфігурацію і схему без змін у БД |
+| `npm run prisma:generate` | Згенерувати Prisma Client локально, без підключення до БД |
+| `npm run prisma:format` | Відформатувати лише `schema.prisma` |
+| `npm run db:check` | Згенерувати клієнт, виконати `SELECT 1` через Prisma і закрити пул з'єднань |
+
+`dev`, `build` і `typecheck` також генерують Prisma Client, тому чистий checkout не потребує згенерованих файлів у Git. Для генерації потрібен `DATABASE_URL` у конфігурації, проте сама генерація не підключається до PostgreSQL. У `src/lib/prisma.ts` експортується єдиний `prisma` з `PrismaPg` adapter; ESM-кешування забезпечує повторне використання клієнта та пулу в межах процесу. Клієнт підключається під час запитів. HTTP health-маршрут залишається незалежним від доступності БД.
+
+Згенеровані TypeScript-файли потрапляють у `src/generated/prisma/`, виключені через `backend/.gitignore` і компілюються в `dist/generated/prisma/`. Генератор використовує ESM та `.ts`-імпорти для запуску через `tsx`; `rewriteRelativeImportExtensions` у TypeScript переписує їх у `.js` для запуску зібраного коду через Node.js.
+
+Початкова схема дозволяє виконувати сирий параметризований SQL, зокрема перевірку `SELECT 1`, навіть без моделей. Команди міграцій, `db push`, seed та створення таблиць на цьому етапі не використовуються. Бізнес-моделі й перші міграції потребують окремого завдання.
 
 ## Локальний запуск frontend
 
@@ -238,6 +267,7 @@ Factory Method (генератори звітів), Template Method (проце�
    - [x] Початкова ініціалізація frontend
 4. [ ] База даних та CRUD
    - [x] Локальний PostgreSQL 18 через Docker Compose
+   - [x] Початкове налаштування Prisma ORM 7 без бізнес-моделей і міграцій
 5. [ ] Видача, повернення, фінансові розрахунки
 6. [ ] Звіти, панель адміністратора
 7. [ ] Тести й остаточна документація
