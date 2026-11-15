@@ -71,7 +71,7 @@ docker compose exec db psql -h db -p 5432 -U library_user -d library_db -W -c "S
 psql -h localhost -p 5433 -U library_user -d library_db -W -c "SELECT 1;"
 ```
 
-Обидва запити мають повернути `1`. Якщо змінили назву БД або користувача в `.env`, підставте відповідні значення. Prisma налаштовано в backend для наявної БД; бізнес-моделей, прикладних таблиць, міграцій і тестових даних на цьому етапі немає.
+Обидва запити мають повернути `1`. Якщо змінили назву БД або користувача в `.env`, підставте відповідні значення. У backend налаштовано Prisma та першу міграцію з дев'ятьма таблицями. Seed-даних поки немає.
 
 Перегляд логів і зупинка:
 
@@ -143,7 +143,9 @@ backend/
 │   └── server.ts                  # Завантаження .env та запуск HTTP-сервера
 ├── test/                          # HTTP-тести та валідація середовища
 ├── scripts/check-database.ts       # Безпечна перевірка SELECT 1 через Prisma
-├── prisma/schema.prisma            # Datasource і generator без бізнес-моделей
+├── scripts/check-schema.ts         # Перевірка каталогу БД й обмежень із відкатом
+├── prisma/schema.prisma            # Дев'ять моделей та PostgreSQL enum
+├── prisma/migrations/              # SQL-міграції та migration_lock.toml
 ├── prisma7.config.ts               # Конфігурація Prisma CLI 7.10+
 ├── .env.example                   # Приклад локальної конфігурації
 ├── package.json / package-lock.json
@@ -154,13 +156,13 @@ backend/
 
 Невідомі маршрути повертають JSON із HTTP `404`; некоректний JSON — `400`, перевищення ліміту тіла 100 КіБ — `413`. Непередбачені помилки повертають `500` без внутрішніх деталей у відповіді та записуються в серверну консоль. Формат помилок: `{"error":{"code":"NOT_FOUND","message":"Route not found"}}`.
 
-Локальний PostgreSQL запускається окремо через кореневий Compose. Prisma налаштовано для цього PostgreSQL; бізнес-моделі та налаштування хостингу будуть окремими етапами.
+Локальний PostgreSQL запускається окремо через кореневий Compose. Початкову схему Prisma застосовано; REST-модулі, бізнес-логіка та налаштування хостингу будуть окремими етапами.
 
 ## Prisma ORM у backend
 
 Встановлено стабільну **Prisma ORM 7.10.1**: CLI `prisma` у dev-залежностях, `@prisma/client` і PostgreSQL adapter `@prisma/adapter-pg` тієї самої версії у runtime-залежностях. Драйвер `pg` працює через TCP; `@types/pg` надає декларації типів. Версії Prisma зафіксовано точно, щоб оновлення не переводило проєкт на Prisma 8. Використовується наявний локальний PostgreSQL; нових хмарних сервісів немає.
 
-За [документацією Prisma 7](https://www.prisma.io/docs/v7/prisma-orm/quickstart/postgresql), `backend/prisma7.config.ts` завантажує `backend/.env` через `dotenv` та задає URL datasource. Назва `prisma7.config.ts` підтримується починаючи з 7.10. У `prisma/schema.prisma` є лише PostgreSQL datasource та генератор `prisma-client`, без моделей. Не додавайте другу конфігурацію Prisma поруч із наявною.
+За [документацією Prisma 7](https://www.prisma.io/docs/v7/prisma-orm/quickstart/postgresql), `backend/prisma7.config.ts` завантажує `backend/.env` через `dotenv` та задає URL datasource. Назва `prisma7.config.ts` підтримується починаючи з 7.10. `prisma/schema.prisma` містить PostgreSQL datasource, генератор `prisma-client` і моделі початкової схеми. Не додавайте другу конфігурацію Prisma поруч із наявною.
 
 У `backend/.env` задайте `DATABASE_URL` у форматі прикладу з `backend/.env.example`: хост `127.0.0.1`, порт `5433`, база `library_db`, користувач `library_user`. Замість `YOUR_URL_ENCODED_PASSWORD` потрібен фактичний пароль із кореневого `.env`, закодований через `encodeURIComponent`: наприклад, `@` → `%40`, `#` → `%23`, `%` → `%25`. Кодується компонент пароля, а не весь URL; не кодуйте вже закодований пароль повторно. За зміни зовнішнього порту PostgreSQL змініть його і в `DATABASE_URL`. Не виводьте повний URL у логи та не додавайте `.env` до Git. Кореневий `.env` не завантажується в backend автоматично.
 
@@ -172,12 +174,49 @@ backend/
 | `npm run prisma:generate` | Згенерувати Prisma Client локально, без підключення до БД |
 | `npm run prisma:format` | Відформатувати лише `schema.prisma` |
 | `npm run db:check` | Згенерувати клієнт, виконати `SELECT 1` через Prisma і закрити пул з'єднань |
+| `npm run prisma:migrate:dev -- --name describe_change --create-only` | Підготувати нову міграцію для перегляду, без її застосування до основної БД |
+| `npm run prisma:migrate:deploy` | Застосувати наявні непройдені SQL-міграції |
+| `npm run prisma:migrate:status` | Перевірити стан міграцій |
+| `npm run db:check-schema` | Перевірити початкову схему й обмеження на локальній навчальній БД; усі тестові записи відкочуються |
+| `npm run db:preflight` | Лише перед найпершою міграцією: підтвердити, що локальна БД порожня; на вже ініціалізованій БД команда навмисно завершується помилкою |
 
 `dev`, `build` і `typecheck` також генерують Prisma Client, тому чистий checkout не потребує згенерованих файлів у Git. Для генерації потрібен `DATABASE_URL` у конфігурації, проте сама генерація не підключається до PostgreSQL. У `src/lib/prisma.ts` експортується єдиний `prisma` з `PrismaPg` adapter; ESM-кешування забезпечує повторне використання клієнта та пулу в межах процесу. Клієнт підключається під час запитів. HTTP health-маршрут залишається незалежним від доступності БД.
 
 Згенеровані TypeScript-файли потрапляють у `src/generated/prisma/`, виключені через `backend/.gitignore` і компілюються в `dist/generated/prisma/`. Генератор використовує ESM та `.ts`-імпорти для запуску через `tsx`; `rewriteRelativeImportExtensions` у TypeScript переписує їх у `.js` для запуску зібраного коду через Node.js.
 
-Початкова схема дозволяє виконувати сирий параметризований SQL, зокрема перевірку `SELECT 1`, навіть без моделей. Команди міграцій, `db push`, seed та створення таблиць на цьому етапі не використовуються. Бізнес-моделі й перші міграції потребують окремого завдання.
+## Початкова схема та міграції
+
+Міграція `20261116000000_init_library_schema` створює `StaffUser`, `ReaderCategory`, `Reader`, `Book`, `BookCopy`, `Rental`, `DamageRule`, `CashMovement` та `AuditLog`. Prisma додатково веде службову таблицю `_prisma_migrations`. Нових бізнес-полів понад ERD не додано; у діаграмі уточнено відсутню лінію зв'язку `StaffUser` → `Rental.closedById`.
+
+- Первинні та зовнішні ключі — PostgreSQL UUID. `gen_random_uuid()` генерує PK на рівні БД, без додаткових extensions.
+- Гроші — `numeric(12,2)`; відсотки — `numeric(5,2)`; часові мітки — `timestamptz(3)`; `AuditLog.details` — `jsonb`.
+- Ролі та стани мають native enum. Окремий `DamageOutcome` містить лише `AVAILABLE`, `MAINTENANCE`, `LOST`, оскільки результат пошкодження не може бути `RENTED`.
+- Унікальні: email працівника, назва категорії, інвентарний номер та код правила пошкодження. Порівняння рядків чутливе до регістру; нормалізацію email перед записом потрібно передбачити на етапі авторизації.
+- Усі 10 FK використовують `ON DELETE RESTRICT`; історичні зв'язки, включно з необов'язковими `closedById` і `damageRuleId`, не очищаються каскадно. Книги архівуються через `archivedAt`, працівники деактивуються через `isActive`.
+- `AuditLog.entityId` — UUID універсального посилання, не FK. Єдиний FK журналу — `actorId`. `action` і `entityType` залишено рядками відповідно до ERD.
+
+`Rental` зберігає всі узгоджені snapshots: денну ціну, заставу, відсоток знижки, назву категорії (`readerCategorySnapshot`) та застосований під час закриття відсоток штрафу (`damagePercentSnapshot`). Індекси покривають FK, каталог, історію прокатів, прострочення та часові діапазони звітів.
+
+Частковий unique-індекс `Rental_one_active_copy_key` захищає `copyId` лише для `status = ACTIVE`, тому закрита історія не блокує нову видачу. Він описаний у Prisma Schema через `@@unique(..., where: ...)` із підтримуваним Prisma 7.10.1 Preview-прапорцем `partialIndexes`. Версію ORM не змінено.
+
+SQL-міграцію згенеровано Prisma через `migrate diff --from-empty --to-schema prisma/schema.prisma --script`, переглянуто та доповнено 16 CHECK-обмеженнями. Цей спосіб підготовки першої міграції не створює shadow database. Перед застосуванням окремо перевірено `127.0.0.1:5433/library_db`, користувача `library_user` і відсутність прикладних об'єктів та історії міграцій. SQL загорнуто в `BEGIN`/`COMMIT` для атомарного створення схеми.
+
+CHECK-обмеження забезпечують невід'ємність усіх грошових полів (також відхиляють PostgreSQL numeric `NaN`), відсотки 0–100, `dueAt > issuedAt`, `closedAt >= issuedAt`. Для `ACTIVE` поля закриття, штрафу й остаточного розрахунку мають бути `NULL`. Для `RETURNED`/`LOST` обов'язкові `closedAt`, `closedById`, `rentalFee`, `damageFine`, `damagePercentSnapshot`, `refundAmount`, `additionalPayment`; `damageRuleId` може бути `NULL`, зокрема для повернення без пошкодження. Нульові підсумки зберігаються як Decimal 0, а не `NULL`.
+
+Prisma Schema не описує CHECK-обмеження, тому їх потрібно зберігати й переглядати безпосередньо в SQL наступних міграцій. Перевірка `migrate diff` охоплює підтримувані Prisma об'єкти; `npm run db:check-schema` додатково перевіряє типи, FK, unique/CHECK, межі, snapshots та видалення. Тестові записи створюються в одній транзакції із SAVEPOINT і гарантованим `ROLLBACK`; після завершення порівнюється кількість рядків. Це не seed і не CRUD. Скрипт дозволяє роботу лише з локальною `library_db` на порту `5433`; його очікування потрібно оновлювати разом із майбутніми змінами схеми.
+
+Після перегляду SQL-міграцій виконуйте:
+
+```powershell
+npm run prisma:migrate:deploy
+npm run prisma:generate
+npm run prisma:migrate:status
+npm run db:check-schema
+```
+
+Для додаткової перевірки відмінностей підтримуваних Prisma об'єктів: `npx --no-install prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` (код 0 означає відсутність різниці). Якщо виявлено невідому схему, конфлікт міграцій або запит на reset — зупиніться й з'ясуйте причину. Не використовуйте `db push` чи `migrate reset` для обходу проблем. Застосовані SQL-міграції не редагують: наступні зміни оформлюють новими міграціями.
+
+CRUD, атомарна зміна `BookCopy.status` разом із прокатом, розрахунки, захист від повторного закриття та seed-дані залишаються окремими задачами. Формули розрахунку й переходи станів не реалізовано тригерами на цьому етапі.
 
 ## Локальний запуск frontend
 
@@ -268,6 +307,7 @@ Factory Method (генератори звітів), Template Method (проце�
 4. [ ] База даних та CRUD
    - [x] Локальний PostgreSQL 18 через Docker Compose
    - [x] Початкове налаштування Prisma ORM 7 без бізнес-моделей і міграцій
+   - [x] Дев'ять моделей, початкова міграція та SQL-обмеження цілісності
 5. [ ] Видача, повернення, фінансові розрахунки
 6. [ ] Звіти, панель адміністратора
 7. [ ] Тести й остаточна документація

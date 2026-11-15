@@ -3,8 +3,183 @@ generator client {
   output              = "../src/generated/prisma"
   moduleFormat        = "esm"
   importFileExtension = "ts"
+  previewFeatures     = ["partialIndexes"]
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum StaffRole {
+  ADMIN
+  LIBRARIAN
+}
+
+enum CopyStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  LOST
+}
+
+enum DamageOutcome {
+  AVAILABLE
+  MAINTENANCE
+  LOST
+}
+
+enum RentalStatus {
+  ACTIVE
+  RETURNED
+  LOST
+}
+
+enum CashMovementType {
+  DEPOSIT_IN
+  REFUND_OUT
+  TOPUP_IN
+}
+
+model StaffUser {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique
+  passwordHash String
+  role         StaffRole @default(LIBRARIAN)
+  isActive     Boolean   @default(true)
+
+  issuedRentals Rental[]       @relation("IssuedRentals")
+  closedRentals Rental[]       @relation("ClosedRentals")
+  cashMovements CashMovement[]
+  auditLogs     AuditLog[]
+}
+
+model ReaderCategory {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String  @unique
+  discountPercent Decimal @default(0) @db.Decimal(5, 2)
+
+  readers Reader[]
+}
+
+model Reader {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName   String
+  address    String
+  phone      String
+  categoryId String @db.Uuid
+
+  category ReaderCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  rentals  Rental[]
+
+  @@index([categoryId])
+  @@index([fullName])
+}
+
+model Book {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title         String
+  author        String
+  genre         String
+  dailyPrice    Decimal   @db.Decimal(12, 2)
+  depositAmount Decimal   @db.Decimal(12, 2)
+  archivedAt    DateTime? @db.Timestamptz(3)
+
+  copies BookCopy[]
+
+  @@index([title])
+  @@index([author])
+  @@index([genre])
+}
+
+model BookCopy {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookId        String     @db.Uuid
+  inventoryCode String     @unique
+  status        CopyStatus @default(AVAILABLE)
+
+  book    Book     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  rentals Rental[]
+
+  @@index([bookId, status])
+}
+
+model DamageRule {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code           String        @unique
+  label          String
+  penaltyPercent Decimal       @db.Decimal(5, 2)
+  outcome        DamageOutcome
+
+  rentals Rental[]
+}
+
+model Rental {
+  id                      String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId                String       @db.Uuid
+  copyId                  String       @db.Uuid
+  issuedById              String       @db.Uuid
+  closedById              String?      @db.Uuid
+  issuedAt                DateTime     @default(now()) @db.Timestamptz(3)
+  dueAt                   DateTime     @db.Timestamptz(3)
+  closedAt                DateTime?    @db.Timestamptz(3)
+  status                  RentalStatus @default(ACTIVE)
+  pricePerDaySnapshot     Decimal      @db.Decimal(12, 2)
+  depositSnapshot         Decimal      @db.Decimal(12, 2)
+  discountPercentSnapshot Decimal      @db.Decimal(5, 2)
+  readerCategorySnapshot  String
+  rentalFee               Decimal?     @db.Decimal(12, 2)
+  damageFine              Decimal?     @db.Decimal(12, 2)
+  damagePercentSnapshot   Decimal?     @db.Decimal(5, 2)
+  refundAmount            Decimal?     @db.Decimal(12, 2)
+  additionalPayment       Decimal?     @db.Decimal(12, 2)
+  damageRuleId            String?      @db.Uuid
+
+  reader        Reader         @relation(fields: [readerId], references: [id], onDelete: Restrict)
+  copy          BookCopy       @relation(fields: [copyId], references: [id], onDelete: Restrict)
+  issuedBy      StaffUser      @relation("IssuedRentals", fields: [issuedById], references: [id], onDelete: Restrict)
+  closedBy      StaffUser?     @relation("ClosedRentals", fields: [closedById], references: [id], onDelete: Restrict)
+  damageRule    DamageRule?    @relation(fields: [damageRuleId], references: [id], onDelete: Restrict)
+  cashMovements CashMovement[]
+
+  @@unique([copyId], map: "Rental_one_active_copy_key", where: { status: "ACTIVE" })
+  @@index([readerId, issuedAt])
+  @@index([copyId, issuedAt])
+  @@index([issuedById])
+  @@index([closedById])
+  @@index([damageRuleId])
+  @@index([status, dueAt])
+  @@index([closedAt])
+}
+
+model CashMovement {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rentalId     String           @db.Uuid
+  type         CashMovementType
+  amount       Decimal          @db.Decimal(12, 2)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  recordedById String           @db.Uuid
+
+  rental     Rental    @relation(fields: [rentalId], references: [id], onDelete: Restrict)
+  recordedBy StaffUser @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([rentalId])
+  @@index([recordedById])
+  @@index([createdAt, type])
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId    String   @db.Uuid
+  action     String
+  entityType String
+  // Polymorphic entity reference, intentionally not a foreign key.
+  entityId   String   @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  details    Json?    @db.JsonB
+
+  actor StaffUser @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
 }

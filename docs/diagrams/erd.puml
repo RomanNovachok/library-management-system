@@ -39,7 +39,7 @@ entity "BookCopy" as BookCopy {
   --
   bookId : UUID <<FK>>
   inventoryCode : string <<UNIQUE>>
-  status : CopyStatus
+  status : AVAILABLE | RENTED | MAINTENANCE | LOST
 }
 entity "DamageRule" as DamageRule {
   * id : UUID <<PK>>
@@ -95,6 +95,7 @@ Book ||--o{ BookCopy : copies
 Reader ||--o{ Rental : rents
 BookCopy ||--o{ Rental : history
 StaffUser ||--o{ Rental : issues
+StaffUser |o--o{ Rental : closes
 DamageRule |o--o{ Rental : applied_on_close
 Rental ||--o{ CashMovement : movements
 StaffUser ||--o{ CashMovement : records
@@ -103,5 +104,18 @@ note right of AuditLog
   entityType + entityId: reference to an affected entity.
   entityId is not a foreign key (multiple entity types).
   AuditLog is supplementary, not a financial source of truth.
+end note
+note right of Rental
+  One ACTIVE rental per copyId (partial unique index).
+  ACTIVE: closing fields are NULL.
+  RETURNED/LOST: closedAt, closedById and settlement
+  snapshots/totals are required; damageRuleId is optional.
+  dueAt > issuedAt; closedAt >= issuedAt.
+end note
+note bottom of Book
+  Money: numeric(12,2), nonnegative, not NaN.
+  Percentages: numeric(5,2), 0..100.
+  DateTime: timestamptz(3); JSON: jsonb.
+  All FKs: ON DELETE RESTRICT.
 end note
 @enduml
