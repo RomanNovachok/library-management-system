@@ -8,8 +8,10 @@ package "Domain" #F5F5F5 {
     +id: UUID
     +title: string
     +author: string
+    +genre: string
     +dailyPrice: Decimal
     +depositAmount: Decimal
+    +archivedAt: DateTime?
   }
   class BookCopy {
     +id: UUID
@@ -56,6 +58,42 @@ package "Domain" #F5F5F5 {
   BookCopy "1" -- "*" Rental
   Rental "1" -- "*" CashMovement
   StaffUser "1" -- "*" AuditLog : performs
+}
+
+package "books — реалізований backend" #E3EAFE {
+  class BooksController {
+    +list(req, res): void
+    +getById(req, res): void
+    +create(req, res): void
+    +update(req, res): void
+    +archive(req, res): void
+  }
+  class BooksService {
+    +list(query): Catalog
+    +getById(id): BookDetails
+    +create(input): Book
+    +update(id, input): BookDetails
+    +archive(id): void
+  }
+  interface BooksRepository {
+    +list(query): BookPage
+    +findById(id): BookDetails?
+    +create(input): Book
+    +update(id, input): BookWriteResult
+    +archive(id, archivedAt): BookWriteResult
+  }
+  class PrismaBooksRepository
+  BooksController --> BooksService
+  BooksService --> BooksRepository
+  BooksRepository <|.. PrismaBooksRepository
+  PrismaBooksRepository ..> Book : reads / writes
+  PrismaBooksRepository ..> BookCopy : reads / counts
+  note bottom of PrismaBooksRepository
+    Спільний Prisma Client.
+    UPDATE лише з archivedAt IS NULL.
+    DELETE API змінює лише archivedAt.
+    Решта діаграми — проєктні класи.
+  end note
 }
 
 package "Strategy — знижки" #DFF1E5 {

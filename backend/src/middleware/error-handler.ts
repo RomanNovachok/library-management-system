@@ -1,4 +1,6 @@
 import type { ErrorRequestHandler } from 'express';
+import { ZodError } from 'zod';
+import { ApiError } from '../lib/api-error.js';
 
 export const errorHandler: ErrorRequestHandler = (
   error: unknown,
@@ -8,6 +10,17 @@ export const errorHandler: ErrorRequestHandler = (
 ) => {
   if (res.headersSent) {
     next(error);
+    return;
+  }
+
+  if (error instanceof ApiError) {
+    res.status(error.status).json({ error: { code: error.code, message: error.message } });
+    return;
+  }
+
+  if (error instanceof ZodError) {
+    const message = error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; ');
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message } });
     return;
   }
 
