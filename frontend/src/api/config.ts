@@ -1,4 +1,3 @@
-// Configuration only. Request functions will be added with the API integration.
 const configuredUrl = import.meta.env.VITE_API_URL?.trim();
 
 function normalizeApiUrl(value: string | undefined): string | undefined {

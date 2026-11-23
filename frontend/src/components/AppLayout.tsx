@@ -6,7 +6,7 @@ import { Icon } from './Icon';
 function Navigation() {
   return <nav aria-label="Основна навігація" className="grid gap-1">
     {sections.map((section) => (
-      <NavLink key={section.path} to={section.path} end className={({ isActive }) => `flex min-h-12 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${isActive ? 'bg-white/12 text-white' : 'text-emerald-50/75 hover:bg-white/7 hover:text-white'}`}>
+      <NavLink key={section.path} to={section.path} end={section.path !== '/books'} className={({ isActive }) => `flex min-h-12 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${isActive ? 'bg-white/12 text-white' : 'text-emerald-50/75 hover:bg-white/7 hover:text-white'}`}>
         <Icon name={section.icon} /><span>{section.title}</span>
       </NavLink>
     ))}
@@ -23,7 +23,7 @@ function Brand() {
 export function AppLayout() {
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLElement>(null);
-  const activeSection = sections.find((section) => section.path === pathname);
+  const activeSection = sections.find((section) => section.path === pathname || (section.path === '/books' && pathname.startsWith('/books/')));
 
   useEffect(() => {
     document.title = `${activeSection?.title ?? 'Сторінку не знайдено'} — Бібліотека`;
