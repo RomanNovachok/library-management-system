@@ -17,6 +17,11 @@ export interface BookCopy {
   status: CopyStatus;
 }
 
+export type BookInput = Pick<Book, 'title' | 'author' | 'genre' | 'dailyPrice' | 'depositAmount'>;
+export type EditableCopyStatus = Extract<CopyStatus, 'AVAILABLE' | 'MAINTENANCE'>;
+export interface CopyInput { inventoryCode: string }
+export interface CopyUpdateInput extends CopyInput { status?: EditableCopyStatus }
+
 export interface BookSummary extends Book {
   copyCount: number;
   availableCopyCount: number;
@@ -80,4 +85,12 @@ export function isBookDetailsResponse(value: unknown): value is { data: BookDeta
 
 export function isBookCopiesResponse(value: unknown): value is { data: BookCopy[] } {
   return record(value) && Array.isArray(value.data) && value.data.every(copy);
+}
+
+export function isBookResponse(value: unknown): value is { data: Book } {
+  return record(value) && book(value.data);
+}
+
+export function isBookCopyResponse(value: unknown): value is { data: BookCopy } {
+  return record(value) && copy(value.data);
 }

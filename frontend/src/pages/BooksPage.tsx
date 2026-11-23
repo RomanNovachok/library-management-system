@@ -1,8 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { getBooks } from '../api/books';
 import { ErrorState, LoadingState } from '../components/ApiFeedback';
 import { Icon } from '../components/Icon';
+import { BookForm } from '../components/forms/BookForm';
+import type { Book } from '../api/book-contract';
 import { useApiResource } from '../hooks/useApiResource';
 import { formatHryvnia } from '../utils/money';
 
@@ -16,6 +18,8 @@ export function BooksPage() {
   const pageSize = [4, 12, 24].includes(sizeParam) ? sizeParam : 12;
   const load = useCallback((signal: AbortSignal) => getBooks({ search, page, pageSize }, signal), [search, page, pageSize]);
   const { resource, retry } = useApiResource(load, 300);
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<Book>();
 
   function changeSearch(value: string) {
     setParams((current) => {
@@ -36,8 +40,21 @@ export function BooksPage() {
 
   return <>
     <p className="eyebrow">Книжковий фонд</p>
-    <h1 className="page-title">Книги</h1>
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <h1 className="page-title">Книги</h1>
+      <button type="button" className="button-primary" onClick={() => setCreating(true)}>Додати книгу</button>
+    </div>
     <p className="mt-3 max-w-2xl text-sm leading-7 text-muted sm:text-base">Знайдіть потрібне видання та перегляньте доступність його примірників.</p>
+    <p className="mt-3 text-xs leading-5 text-muted">Керування фондом доступне лише для локальної розробки. Дозвіл на зміну перевіряє сервер.</p>
+    {created && <p role="status" className="mt-5 break-words rounded-xl border border-line bg-sage p-4 text-sm leading-6 text-pine">
+      Книгу «{created.title}» додано. Каталог відфільтровано за її назвою. <Link to={{ pathname: `/books/${created.id}`, search: params.toString() }} className="font-semibold underline">Переглянути книгу</Link>
+    </p>}
+    {creating && <BookForm onClose={() => setCreating(false)} onRefresh={() => { setCreating(false); retry(); }} onSaved={(book) => {
+      setCreating(false);
+      setCreated(book);
+      setParams({ search: book.title });
+      retry();
+    }} />}
 
     <div className="mb-7 mt-8 flex flex-col gap-4 rounded-2xl border border-line bg-white p-5 sm:flex-row sm:items-end sm:p-6">
       <form role="search" className="min-w-0 flex-1" onSubmit={(event) => event.preventDefault()}>
