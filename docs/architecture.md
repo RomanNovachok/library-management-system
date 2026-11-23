@@ -16,6 +16,20 @@ Repository перетворює лише дозволені грошові ря�
 
 `ApiError` і Zod-помилки обробляє спільний error middleware у форматі `{ error: { code, message } }`; непередбачені помилки повертають безпечний 500. Контракт API, приклади й команди перевірки наведені в README. Нових GoF-патернів модуль не вводить.
 
+## Реалізований модуль book-copies
+
+Окремий `src/modules/book-copies/` має `BookCopiesController → BookCopiesService → BookCopiesRepository`. Вкладений router `/api/books/:bookId/copies` підключено до API перед router Books, із `mergeParams` для UUID книги та власними строгими Zod-схемами params/query/body. Використовується наявний `developmentLoopbackOnly` перед JSON parser. `createApp` приймає окремий підмінений repository; за замовчуванням `PrismaBookCopiesRepository` ліниво завантажує спільний Prisma Client.
+
+Сервіс визначає бізнес-обмеження всередині `repository.transaction`: 404 для відсутніх/чужих записів, заборона запису архівованої книги, лише `AVAILABLE`/`MAINTENANCE` без активного Rental для зміни статусу, а для DELETE — лише `AVAILABLE` без будь-якої історії. Інвентарний номер редагується незалежно від статусу, без зміни історії. Repository передає сервісу транзакційний контракт `BookCopiesWriteRepository`; результат PATCH читається в тій самій транзакції.
+
+Записи використовують PostgreSQL `ReadCommitted`, спочатку `SELECT Book ... FOR SHARE NOWAIT`, потім `SELECT BookCopy ... FOR UPDATE NOWAIT`. SHARE захищає від архівування Books, дозволяючи обробляти різні примірники паралельно. UPDATE захищає примірник від зміни/видалення та конфліктує з key-share блокуванням FK під час вставки Rental. Додаткові предикати UPDATE/DELETE повторно обмежують статус і пов'язані Rental. Контенція повертає 409 без автоматичного повторення операції. Семантику блокувань описано в [PostgreSQL 18](https://www.postgresql.org/docs/18/explicit-locking.html).
+
+Унікальність і FK забезпечують чинні обмеження PostgreSQL. Repository перетворює Prisma P2002/P2003 та конфлікти P2034/P2025 і SQLSTATE 55P03/40P01/40001 у безпечні `ApiError(409)`; для Prisma 7 SQLSTATE читається також із вкладеної помилки adapter. Непередбачені помилки обробляє наявний middleware як 500. Коди описані в [Prisma error reference](https://www.prisma.io/docs/orm/v7/reference/error-reference).
+
+Майбутній RentalService повинен у транзакції перевіряти неархівовану книгу, блокувати книгу перед примірником у тому самому порядку, перечитувати актуальний статус під блокуванням і лише потім створювати/закривати Rental та змінювати BookCopy.status. CRUD не реалізує ці операції й не змінює Rental/CashMovement. Рядкові блокування захищають паралельні операції, а не застарілі дані форми між двома завершеними запитами; version/ETag у поточній моделі немає.
+
+`scripts/check-book-copies.ts` перевіряє HTTP API у rollback-транзакції, використовує SAVEPOINT для ізоляції SQL-помилок та окремі з'єднання для конкурентних сценаріїв. Ін'єкція connection із runner транзакцій дозволяє гарантовано відкочувати й успішні конкурентні запити. Порівняння повних знімків усіх дев'яти таблиць підтверджує збереження даних. Нових моделей, міграцій чи GoF-патернів не додано.
+
 ## Реалізація чотирьох GoF-патернів
 
 **Strategy.** `DiscountStrategy` з реалізаціями `NoDiscountStrategy` і `PercentageDiscountStrategy`. Відсоток передається як значення з категорії, знімок якого зафіксований у прокаті. **Не** створюємо окремий клас під кожну категорію з БД.

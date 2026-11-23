@@ -15,6 +15,8 @@ package "Domain" #F5F5F5 {
   }
   class BookCopy {
     +id: UUID
+    +bookId: UUID
+    +inventoryCode: string
     +status: CopyStatus
   }
   class Reader {
@@ -93,6 +95,54 @@ package "books — реалізований backend" #E3EAFE {
     UPDATE лише з archivedAt IS NULL.
     DELETE API змінює лише archivedAt.
     Решта діаграми — проєктні класи.
+  end note
+}
+
+package "book-copies — реалізований backend" #E3EAFE {
+  class BookCopiesController {
+    +list(req, res): void
+    +getById(req, res): void
+    +create(req, res): void
+    +update(req, res): void
+    +delete(req, res): void
+  }
+  class BookCopiesService {
+    +list(bookId, query): BookCopy[]
+    +getById(bookId, copyId): BookCopy
+    +create(bookId, input): BookCopy
+    +update(bookId, copyId, input): BookCopy
+    +delete(bookId, copyId): void
+  }
+  interface BookCopiesRepository {
+    +findBook(bookId): CopyBook?
+    +list(bookId, status): BookCopy[]
+    +findById(bookId, copyId): BookCopy?
+    +transaction(operation): T
+  }
+  interface BookCopiesWriteRepository {
+    +lockBook(bookId): CopyBook?
+    +lockCopy(bookId, copyId): BookCopy?
+    +hasRentals(copyId, activeOnly): boolean
+    +create(bookId, inventoryCode): BookCopy
+    +update(copy, input): BookCopy
+    +delete(copy): void
+  }
+  class PrismaBookCopiesRepository
+  class PrismaBookCopiesWriteRepository
+  BookCopiesController --> BookCopiesService
+  BookCopiesService --> BookCopiesRepository
+  BookCopiesService ..> BookCopiesWriteRepository : transaction callback
+  BookCopiesRepository <|.. PrismaBookCopiesRepository
+  BookCopiesWriteRepository <|.. PrismaBookCopiesWriteRepository
+  PrismaBookCopiesRepository ..> PrismaBookCopiesWriteRepository : creates in transaction
+  PrismaBookCopiesWriteRepository ..> Book : locks / reads
+  PrismaBookCopiesWriteRepository ..> BookCopy : locks / writes
+  PrismaBookCopiesWriteRepository ..> Rental : reads only
+  note bottom of PrismaBookCopiesWriteRepository
+    Book FOR SHARE NOWAIT, потім BookCopy FOR UPDATE NOWAIT.
+    CRUD статуси: AVAILABLE / MAINTENANCE.
+    DELETE: AVAILABLE без жодного Rental.
+    Конфлікти: 409; історія зберігається.
   end note
 }
 

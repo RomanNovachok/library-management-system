@@ -20,6 +20,7 @@
     "db:seed": "npm run prisma:generate && prisma db seed",
     "db:check-seed": "npm run prisma:generate && tsx scripts/check-seed.ts",
     "db:check-books": "npm run prisma:generate && tsx scripts/check-books.ts",
+    "db:check-book-copies": "npm run prisma:generate && tsx scripts/check-book-copies.ts",
     "db:preflight": "tsx scripts/check-schema.ts --expect-empty",
     "db:check-schema": "tsx scripts/check-schema.ts",
     "prisma:migrate:dev": "prisma migrate dev",
