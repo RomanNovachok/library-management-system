@@ -1,5 +1,9 @@
 export function apiErrorMessage(status: number, code?: string): string {
   const messages: Record<string, string> = {
+    READER_NOT_FOUND: 'Читача не знайдено. Перевірте адресу або поверніться до списку.',
+    READER_CATEGORY_NOT_FOUND: 'Категорію не знайдено. Оновіть список категорій і повторіть вибір.',
+    READER_CATEGORY_CONFLICT: 'Категорія більше недоступна. Оновіть дані перед повторною спробою.',
+    READER_WRITE_CONFLICT: 'Профіль одночасно змінено. Оновіть дані перед повторною спробою.',
     INVENTORY_CODE_EXISTS: 'Цей інвентарний номер уже використовується. Вкажіть інший номер.',
     COPY_HAS_RENTALS: 'Примірник має історію прокатів, тому його не можна видалити.',
     COPY_ACTIVE_RENTAL: 'Примірник має активний прокат. Змінити його статус зараз неможливо.',
@@ -9,7 +13,7 @@ export function apiErrorMessage(status: number, code?: string): string {
     BOOK_ARCHIVED: 'Книгу вже архівовано. Зміни книги та її примірників недоступні.',
     BOOK_NOT_FOUND: 'Книгу не знайдено. Можливо, її більше немає за цією адресою.',
     COPY_NOT_FOUND: 'Примірник не знайдено. Оновіть список примірників.',
-    ADMIN_ACCESS_FORBIDDEN: 'Зміни дозволені лише для локальної розробки: backend має працювати в development і отримувати запити через loopback. Доступ заборонено.',
+    ADMIN_ACCESS_FORBIDDEN: 'Доступ дозволений лише для локальної розробки: backend має працювати в development і отримувати запити через loopback. Доступ заборонено.',
   };
   if (code && messages[code]) return messages[code];
   if (status === 400) return 'Некоректні дані запиту. Перевірте заповнені поля та параметри адреси.';

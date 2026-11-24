@@ -22,8 +22,12 @@ package "Domain" #F5F5F5 {
   class Reader {
     +id: UUID
     +fullName: string
+    +address: string
+    +phone: string
+    +categoryId: UUID
   }
   class ReaderCategory {
+    +id: UUID
     +name: string
     +discountPercent: Decimal
   }
@@ -143,6 +147,50 @@ package "book-copies — реалізований backend" #E3EAFE {
     CRUD статуси: AVAILABLE / MAINTENANCE.
     DELETE: AVAILABLE без жодного Rental.
     Конфлікти: 409; історія зберігається.
+  end note
+}
+
+package "readers — реалізований backend" #E3EAFE {
+  class ReadersController {
+    +list(req, res): void
+    +getById(req, res): void
+    +create(req, res): void
+    +update(req, res): void
+    +categories(req, res): void
+    +rentals(req, res): void
+  }
+  class ReadersService {
+    +list(query): ReaderPage
+    +getById(id): ReaderDetails
+    +create(input): ReaderDetails
+    +update(id, input): ReaderDetails
+    +categories(): ReaderCategory[]
+    +rentals(id, query): RentalPage
+  }
+  interface ReadersRepository {
+    +list(query): ReaderPage
+    +findById(id): ReaderDetails?
+    +findCategory(id): ReaderCategory?
+    +categories(): ReaderCategory[]
+    +create(input): ReaderDetails
+    +update(id, input): ReaderDetails
+    +rentals(id, query): RentalPage
+  }
+  class PrismaReadersRepository
+  ReadersController --> ReadersService
+  ReadersService --> ReadersRepository
+  ReadersRepository <|.. PrismaReadersRepository
+  PrismaReadersRepository ..> Reader : reads / writes
+  PrismaReadersRepository ..> ReaderCategory : reads only
+  PrismaReadersRepository ..> Rental : reads only
+  PrismaReadersRepository ..> BookCopy : reads history
+  PrismaReadersRepository ..> Book : reads title
+  note bottom of ReadersService
+    Усі endpoints: development + loopback.
+    Категорії з БД, поточна знижка Decimal.
+    PATCH лише переданих полів Reader.
+    Історичні знімки Rental незмінні.
+    DELETE та видача/повернення відсутні.
   end note
 }
 

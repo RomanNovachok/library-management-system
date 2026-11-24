@@ -69,7 +69,7 @@ export async function requestJson<T>(path: string, options: RequestOptions, vali
     if (signal.aborted) throw error;
     throw new ApiError(`Сервер повернув некоректну JSON-відповідь.${isMutation ? uncertainMessage : ' Спробуйте ще раз.'}`, undefined, undefined, isMutation);
   }
-  if (!validate(body)) throw new ApiError(`Формат відповіді сервера не відповідає Books API.${isMutation ? uncertainMessage : ' Спробуйте ще раз.'}`, undefined, undefined, isMutation);
+  if (!validate(body)) throw new ApiError(`Формат відповіді сервера не відповідає API.${isMutation ? uncertainMessage : ' Спробуйте ще раз.'}`, undefined, undefined, isMutation);
   return body;
 }
 

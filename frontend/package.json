@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json",
     "lint": "eslint . --max-warnings 0",
     "test": "node --test test/*.test.mjs",
+    "test:readers-ui": "node scripts/check-readers-ui.mjs",
     "check": "npm run typecheck && npm run lint"
   },
   "dependencies": {

@@ -15,7 +15,7 @@ export function developmentLoopbackOnly(environment: Env['NODE_ENV']): RequestHa
   return (req, _res, next) => {
     // Read the actual TCP peer, never req.ip, Forwarded, role headers or proxy headers.
     if (environment !== 'development' || !isLoopback(req.socket.remoteAddress)) {
-      next(new ApiError(403, 'ADMIN_ACCESS_FORBIDDEN', 'Book changes require a local loopback connection in development'));
+      next(new ApiError(403, 'ADMIN_ACCESS_FORBIDDEN', 'This operation requires a local loopback connection in development'));
       return;
     }
     next();

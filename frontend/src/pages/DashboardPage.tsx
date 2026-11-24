@@ -26,11 +26,11 @@ export function DashboardPage() {
         {sections.filter((section) => section.path !== '/dashboard').map((section) => (
           <Link key={section.path} to={section.path} className="group rounded-2xl border border-line bg-white p-6 transition-colors hover:border-pine/35 hover:bg-[#fcfdfb]">
             <div className="mb-6 flex items-center justify-between"><span className="flex size-11 items-center justify-center rounded-xl bg-sage text-pine"><Icon name={section.icon} className="size-6" /></span><Icon name="arrow" className="size-4 text-muted transition-transform group-hover:translate-x-1 motion-reduce:transform-none" /></div>
-            <h3 className="text-base font-semibold text-ink">{section.title}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-muted">{section.description}</p><span className="mt-5 inline-flex rounded-md bg-surface px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted">Заплановано</span>
+            <h3 className="text-base font-semibold text-ink">{section.title}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-muted">{section.description}</p><span className="mt-5 inline-flex rounded-md bg-surface px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted">{section.path === '/readers' ? 'Доступно локально' : 'Заплановано'}</span>
           </Link>
         ))}
         <div className="flex flex-col justify-center rounded-2xl border border-dashed border-[#d4dfd7] px-6 py-7">
-          <p className="text-sm font-medium text-ink">Система на етапі створення</p><p className="mt-3 text-sm leading-6 text-muted">Це основа майбутнього робочого інтерфейсу. Дані бібліотеки та операції ще не підключені.</p>
+          <p className="text-sm font-medium text-ink">Система на етапі створення</p><p className="mt-3 text-sm leading-6 text-muted">Каталог і профілі читачів підключені до API. Решта можливостей з’являтиметься поступово.</p>
         </div>
       </div>
     </section>
