@@ -1,24 +1,19 @@
 import { json, Router } from 'express';
-import type { Env } from '../../config/env.js';
-import { developmentLoopbackOnly } from '../../middleware/development-loopback-only.js';
+import { requireRole } from '../../middleware/staff-auth.js';
 import { BookCopiesController } from './book-copies.controller.js';
 import { PrismaBookCopiesRepository } from './book-copies.repository.js';
 import type { BookCopiesRepository } from './book-copies.repository.js';
 import { BookCopiesService } from './book-copies.service.js';
 
-export function createBookCopiesRouter(environment: Env['NODE_ENV'], repository: BookCopiesRepository = new PrismaBookCopiesRepository()) {
+export function createBookCopiesRouter(repository: BookCopiesRepository = new PrismaBookCopiesRepository()) {
   const router = Router({ mergeParams: true });
   const controller = new BookCopiesController(new BookCopiesService(repository));
-  const localAdmin = developmentLoopbackOnly(environment);
-  router.use((req, res, next) => {
-    if (['POST', 'PATCH', 'DELETE'].includes(req.method)) localAdmin(req, res, next);
-    else next();
-  });
-  router.use(json({ limit: '100kb' }));
+  const admin = requireRole('ADMIN');
+  const body = json({ limit: '100kb' });
   router.get('/', controller.list);
   router.get('/:copyId', controller.getById);
-  router.post('/', controller.create);
-  router.patch('/:copyId', controller.update);
-  router.delete('/:copyId', controller.delete);
+  router.post('/', admin, body, controller.create);
+  router.patch('/:copyId', admin, body, controller.update);
+  router.delete('/:copyId', admin, body, controller.delete);
   return router;
 }

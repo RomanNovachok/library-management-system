@@ -6,6 +6,7 @@ import type { TestContext } from 'node:test';
 import { z } from 'zod';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/config/env.js';
+import { requestSession, staffRequestHeaders } from './helpers/auth.repository.js';
 import { Prisma } from '../src/generated/prisma/client.js';
 import { ApiError } from '../src/lib/api-error.js';
 import { PrismaBookCopiesRepository } from '../src/modules/book-copies/book-copies.repository.js';
@@ -17,17 +18,20 @@ const readCopy = async (response: Response) => z.object({ data: copyJson }).pars
 const readList = async (response: Response) => z.object({ data: z.array(copyJson) }).parse(await response.json()).data;
 const readError = async (response: Response) => z.object({ error: z.object({ code: z.string(), message: z.string() }) }).parse(await response.json()).error;
 
-async function setup(t: TestContext, environment: Env['NODE_ENV'] = 'development') {
+async function setup(t: TestContext, environment: Env['NODE_ENV'] = 'development', role: 'ADMIN' | 'LIBRARIAN' = 'ADMIN') {
   const repository = new MemoryBookCopiesRepository();
-  const app = createApp({ CORS_ORIGIN: 'https://frontend.example.com', NODE_ENV: environment }, { bookCopiesRepository: repository });
+  const origin = 'https://frontend.example.com';
+  const auth = await requestSession(role, environment === 'production');
+  const headers = staffRequestHeaders(origin, auth.cookie);
+  const app = createApp({ CORS_ORIGIN: origin, NODE_ENV: environment }, { bookCopiesRepository: repository, authRepository: auth.repository });
   const server = app.listen(0, '127.0.0.1');
   t.after(async () => { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); });
   await once(server, 'listening');
   const root = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/books`;
   const request = (path = '', method = 'GET', body?: unknown, bookId = copiesBookId) => fetch(`${root}/${bookId}/copies${path}`, {
-    method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }),
+    method, headers, ...(body !== undefined && { body: JSON.stringify(body) }),
   });
-  return { repository, request, root };
+  return { repository, request, root, headers };
 }
 
 test('copies list, all four status filters, empty book and archived book remain readable', async (t) => {
@@ -226,17 +230,24 @@ test('strict copy bodies reject empty values, reassignment, system fields, relat
   assert.equal(JSON.stringify([...repository.copies]), before);
 });
 
-test('malformed JSON is 400 in development; production mutations are 403 before JSON parsing', async (t) => {
-  for (const environment of ['development', 'production', 'test'] as const) {
-    const { root } = await setup(t, environment);
+test('malformed copy mutations return 400 for ADMIN and 403 for LIBRARIAN before JSON parsing', async (t) => {
+  for (const role of ['ADMIN', 'LIBRARIAN'] as const) {
+    const { root, headers } = await setup(t, 'production', role);
     for (const method of ['POST', 'PATCH', 'DELETE']) {
       const response = await fetch(`${root}/${copiesBookId}/copies${method === 'POST' ? '' : `/${absentId}`}`, {
-        method, headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '127.0.0.1', 'X-Role': 'ADMIN' }, body: '{',
+        method, headers: { ...headers, 'X-Forwarded-For': '127.0.0.1', 'X-Role': 'ADMIN' }, body: '{',
       });
-      assert.equal(response.status, environment === 'development' ? 400 : 403);
-      assert.equal((await readError(response)).code, environment === 'development' ? 'INVALID_JSON' : 'ADMIN_ACCESS_FORBIDDEN');
+      assert.equal(response.status, role === 'ADMIN' ? 400 : 403);
+      assert.equal((await readError(response)).code, role === 'ADMIN' ? 'INVALID_JSON' : 'ROLE_FORBIDDEN');
     }
   }
+});
+
+test('librarian can view copies', async (t) => {
+  const { request, repository } = await setup(t, 'test', 'LIBRARIAN');
+  const copy = repository.copyWithStatus('AVAILABLE');
+  assert.equal((await readList(await request())).some((row) => row.id === copy.id), true);
+  assert.equal((await readCopy(await request(`/${copy.id}`))).id, copy.id);
 });
 
 test('simultaneous service mutations surface a conflict instead of overwriting a locked copy', async () => {

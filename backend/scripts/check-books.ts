@@ -5,23 +5,11 @@ import type { AddressInfo } from 'node:net';
 import { z } from 'zod';
 import { assertLocalSeedTarget, SeedSafetyError } from '../prisma/seed-library.js';
 import { createApp } from '../src/app.js';
-import { Prisma } from '../src/generated/prisma/client.js';
 import { prisma } from '../src/lib/prisma.js';
+import { databaseSnapshot } from './database-snapshot.js';
+import { requestSession, staffRequestHeaders } from '../test/helpers/auth.repository.js';
 import { PrismaBooksRepository } from '../src/modules/books/books.repository.js';
 
-async function snapshot(db: Prisma.TransactionClient) {
-  return JSON.stringify(await Promise.all([
-    db.book.findMany({ orderBy: { id: 'asc' } }),
-    db.bookCopy.findMany({ orderBy: { id: 'asc' } }),
-    db.rental.findMany({ orderBy: { id: 'asc' } }),
-    db.reader.findMany({ orderBy: { id: 'asc' } }),
-    db.readerCategory.findMany({ orderBy: { id: 'asc' } }),
-    db.damageRule.findMany({ orderBy: { id: 'asc' } }),
-    db.cashMovement.findMany({ orderBy: { id: 'asc' } }),
-    db.staffUser.findMany({ orderBy: { id: 'asc' } }),
-    db.auditLog.findMany({ orderBy: { id: 'asc' } }),
-  ]));
-}
 
 const bookResponse = z.object({ data: z.object({
   id: z.uuid(), title: z.string(), dailyPrice: z.string(), depositAmount: z.string(), archivedAt: z.string().nullable(),
@@ -37,19 +25,21 @@ try {
   assert.equal(identity.username, 'library_user', 'Unexpected database user');
   assert.equal(identity.schema, 'public', 'Unexpected database schema');
 
-  const original = await snapshot(prisma);
+  const original = await databaseSnapshot(prisma);
   const rollback = new Error('Intentional rollback of books API verification');
   await assert.rejects(prisma.$transaction(async (tx) => {
+    const auth = await requestSession('ADMIN');
+    const headers = staffRequestHeaders('https://frontend.example.com', auth.cookie);
     const app = createApp(
       { CORS_ORIGIN: 'https://frontend.example.com', NODE_ENV: 'development' },
-      { booksRepository: new PrismaBooksRepository(tx) },
+      { booksRepository: new PrismaBooksRepository(tx), authRepository: auth.repository },
     );
     const server = app.listen(0, '127.0.0.1');
     try {
       await once(server, 'listening');
       const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/books`;
       const request = (path = '', method = 'GET', body?: unknown) => fetch(`${base}${path}`, {
-        method, headers: { 'Content-Type': 'application/json' },
+        method, headers,
         ...(body !== undefined && { body: JSON.stringify(body) }),
       });
       const marker = `API-check-${randomUUID()}`;
@@ -122,9 +112,9 @@ try {
     throw rollback;
   }, { timeout: 30000 }), (error: unknown) => error === rollback);
 
-  assert.equal(await snapshot(prisma), original, 'Rollback must preserve all existing rows across all nine tables');
+  assert.equal(await databaseSnapshot(prisma), original, 'Rollback must preserve all existing rows across all ten tables');
   console.info('Books API integration passed: real PostgreSQL CRUD, Decimal, search, pagination, counts, 404/409 and archive rules.');
-  console.info('All test writes rolled back; complete snapshots of all nine tables are unchanged.');
+  console.info('All test writes rolled back; complete snapshots of all ten tables are unchanged.');
 } catch (error) {
   console.error(error instanceof SeedSafetyError || error instanceof assert.AssertionError
     ? error.message

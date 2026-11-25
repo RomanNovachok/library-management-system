@@ -9,7 +9,7 @@ export const errorHandler: ErrorRequestHandler = (
   next,
 ) => {
   if (res.headersSent) {
-    next(error);
+    next(new Error('API response failed'));
     return;
   }
 
@@ -47,7 +47,7 @@ export const errorHandler: ErrorRequestHandler = (
     }
   }
 
-  console.error('Unhandled API error:', error);
+  console.error('Unhandled API error');
   res.status(500).json({
     error: { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' },
   });

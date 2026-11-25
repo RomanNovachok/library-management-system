@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp } from 'node:fs/promises';
@@ -11,21 +12,36 @@ import { register } from '../../backend/node_modules/tsx/dist/esm/api/index.mjs'
 register();
 const { createApp } = await import('../../backend/src/app.ts');
 const { MemoryReadersRepository, validReaderInput, categoryId, otherCategoryId } = await import('../../backend/test/helpers/readers.repository.ts');
+const { MemoryAuthRepository } = await import('../../backend/test/helpers/auth.repository.ts');
+const { MemoryBooksRepository, bookId } = await import('../../backend/test/helpers/books.repository.ts');
+const { MemoryBookCopiesRepository } = await import('../../backend/test/helpers/book-copies.repository.ts');
+const { hashPassword } = await import('../../backend/src/modules/auth/passwords.ts');
 const chrome = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].find((candidate) => candidate && existsSync(candidate));
 assert.ok(chrome, 'Set CHROME_PATH to an installed Chrome/Chromium executable to run browser checks');
 const repository = new MemoryReadersRepository();
+const auth = new MemoryAuthRepository();
+const password = `Browser fixture ${randomUUID()}!`;
+const passwordHash = await hashPassword(password);
+const admin = await auth.createAccount({ email: 'admin@example.test', role: 'ADMIN', passwordHash });
+const librarian = await auth.createAccount({ email: 'librarian@example.test', role: 'LIBRARIAN', passwordHash });
+const books = new MemoryBooksRepository();
+const copies = new MemoryBookCopiesRepository();
+copies.books.set(bookId, { id: bookId, archivedAt: null });
+for (const copy of books.copies) copies.copies.set(copy.id, copy);
 for (let i = 0; i < 12; i++) await repository.create({ ...validReaderInput, fullName: `Тестовий Читач ${String(i).padStart(2, '0')}`, categoryId: i % 2 ? otherCategoryId : categoryId });
 const requests = [];
 let fault;
 let delay = 0;
+let meDelay = 0;
 let app;
 let origin;
 const server = httpServer(async (req, res) => {
   requests.push({ method: req.method, url: req.url });
+  if (req.url === '/api/auth/me' && meDelay) await new Promise((resolve) => setTimeout(resolve, meDelay));
   if (req.method !== 'OPTIONS' && delay && ['POST', 'PATCH'].includes(req.method)) await new Promise((resolve) => setTimeout(resolve, delay));
   if (req.method !== 'OPTIONS' && fault?.match(req)) {
     if (fault.network) { req.socket.destroy(); return; }
-    res.writeHead(fault.status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin });
+    res.writeHead(fault.status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true' });
     res.end(JSON.stringify({ error: { code: fault.code ?? 'TEST_FAILURE' } }));
     return;
   }
@@ -45,7 +61,9 @@ try {
   await vite.listen();
   console.info('Readers browser check: test servers listening');
   origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
-  app = createApp({ CORS_ORIGIN: origin, NODE_ENV: 'development' }, { readersRepository: repository });
+  app = createApp({ CORS_ORIGIN: origin, NODE_ENV: 'development' }, {
+    readersRepository: repository, authRepository: auth, booksRepository: books, bookCopiesRepository: copies,
+  });
   const cache = path.resolve('node_modules/.cache');
   await mkdir(cache, { recursive: true });
   const profile = await mkdtemp(path.join(cache, 'chrome-readers-'));
@@ -103,9 +121,76 @@ try {
   const dialogReady = () => waitFor(`document.querySelector('dialog[open] #reader-categoryId') !== null`);
   const closed = () => waitFor(`!document.querySelector('dialog')`);
   const count = (method) => requests.filter((request) => request.method === method).length;
+  const fill = (scope, values) => evaluate(`{
+    const root = document.querySelector(${JSON.stringify(scope)});
+    for (const [name, value] of Object.entries(${JSON.stringify(values)})) root.querySelector('[name="' + name + '"]').value = value;
+  }`);
+  const loginReady = () => waitFor(`location.pathname === '/login' && !!document.querySelector('input[name="password"]')`);
+  const loginAs = async (email, value = password) => {
+    await loginReady();
+    await fill('main form', { email, password: value });
+    await click('Увійти');
+  };
+  const hasButton = (label) => `[...document.querySelectorAll('main button')].some(button => button.textContent.trim() === ${JSON.stringify(label)})`;
 
   await call('Runtime.enable'); await call('Page.enable');
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await navigate('/books'); await loginReady();
+  assert.ok(!requests.some((request) => request.url.startsWith('/api/books')));
+  await loginAs(admin.email, 'incorrect');
+  await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('Неправильна електронна адреса або пароль')`);
+  await fill('main form', { email: admin.email, password });
+  delay = 400;
+  const loginCount = requests.filter(({ method, url }) => method === 'POST' && url === '/api/auth/login').length;
+  await evaluate(`{ const form = document.querySelector('main form'); form.requestSubmit(); form.requestSubmit(); }`);
+  await waitFor(`location.pathname === '/books' && ${hasButton('Додати книгу')}`);
+  delay = 0;
+  assert.equal(requests.filter(({ method, url }) => method === 'POST' && url === '/api/auth/login').length, loginCount + 1);
+  assert.ok(await evaluate(`document.querySelector('header').textContent.includes('Адміністратор')`));
+  assert.ok(await evaluate(`!document.cookie.includes('library_session') && localStorage.length === 0 && sessionStorage.length === 0`));
+
+  meDelay = 650;
+  await call('Page.reload');
+  await waitFor(`document.querySelector('main')?.textContent.includes('Перевіряємо сеанс')`);
+  assert.equal(await evaluate(`document.querySelector('nav') === null`), true);
+  await waitFor(hasButton('Додати книгу'));
+  meDelay = 0;
+  await navigate(`/books/${bookId}`);
+  await waitFor(hasButton('Додати примірник'));
+  await navigate('/administration');
+  await waitFor(`document.querySelector('#staff-title') !== null && document.querySelector('main ul li') !== null`);
+  await click('Додати працівника');
+  await fill('dialog', { email: 'new@example.test', password });
+  await click('Створити обліковий запис', 'dialog');
+  await closed();
+  await waitFor(`document.querySelector('main ul').textContent.includes('new@example.test')`);
+  await evaluate(`[...document.querySelectorAll('main li')].find(row => row.textContent.includes('new@example.test')).querySelector('button').click()`);
+  await evaluate(`document.querySelector('dialog input[name="isActive"]').click()`);
+  await click('Зберегти зміни', 'dialog'); await closed();
+  await waitFor(`[...document.querySelectorAll('main li')].some(row => row.textContent.includes('new@example.test') && row.textContent.includes('Неактивний'))`);
+  const resetPassword = `Reset browser ${randomUUID()}!`;
+  await evaluate(`[...document.querySelectorAll('main li')].find(row => row.textContent.includes('new@example.test')).querySelectorAll('button')[1].click()`);
+  await fill('dialog', { password: resetPassword });
+  await click('Зберегти зміни', 'dialog'); await closed();
+
+  await click('Вийти', 'header'); await loginReady();
+  assert.equal(auth.sessions.size, 0);
+  await navigate('/books'); await loginAs(librarian.email);
+  await waitFor(`location.pathname === '/books' && document.querySelector('header')?.textContent.includes('Бібліотекар')`);
+  assert.equal(await evaluate(hasButton('Додати книгу')), false);
+  assert.equal(await evaluate(`document.querySelector('[href="/administration"]')`), null);
+  await navigate(`/books/${bookId}`);
+  await waitFor(`document.querySelector('main h1')?.textContent === 'Alpha' && document.querySelector('main')?.textContent.includes('TEST-0')`);
+  for (const label of ['Редагувати', 'Архівувати', 'Додати примірник', 'Видалити']) assert.equal(await evaluate(hasButton(label)), false);
+  await navigate('/administration');
+  await waitFor(`location.pathname === '/dashboard'`);
+  assert.equal(await evaluate(`document.querySelector('[href="/administration"]')`), null);
+  await auth.deleteAccountSessions(librarian.id);
+  await evaluate(`document.querySelector('nav [href="/readers"]').click()`);
+  await loginReady();
+  await loginAs(librarian.email); await ready();
+  console.info('PASS login, private route, duplicate submit, reload, ADMIN/LIBRARIAN UI, staff forms, logout and revoked session redirect');
+
   await navigate('/readers?pageSize=10&page=2'); await ready();
   assert.equal(await evaluate(`document.querySelectorAll('section ul > li').length`), 2);
   await field('reader-search', 'Тестовий Читач 01'); await ready();
@@ -157,9 +242,9 @@ try {
   assert.equal(await evaluate(`document.querySelector('dialog button[type="submit"]') === null`), true);
   fault = undefined; await click('Спробувати ще раз', 'dialog'); await dialogReady();
   await click('Скасувати', 'dialog'); await closed();
-  fault = { match: (req) => req.url.startsWith('/api/readers'), status: 403, code: 'ADMIN_ACCESS_FORBIDDEN' };
+  fault = { match: (req) => req.url.startsWith('/api/readers'), status: 403, code: 'ROLE_FORBIDDEN' };
   await navigate('/readers');
-  await waitFor(`document.querySelector('main [role="alert"]')?.textContent.includes('локальної розробки')`);
+  await waitFor(`document.querySelector('main [role="alert"]')?.textContent.includes('роль')`);
   fault = { match: (req) => req.url.startsWith('/api/readers'), network: true };
   await navigate('/readers');
   await waitFor(`document.querySelector('main [role="alert"]')?.textContent.includes('з’єднатися із сервером')`);
@@ -174,7 +259,7 @@ try {
   assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
   await click('Скасувати', 'dialog'); await closed();
   assert.deepEqual(runtimeErrors, []);
-  console.info('PASS category API recovery, missing category error, production 403, offline/empty states, return navigation, mobile layout and no runtime exceptions');
+  console.info('PASS category API recovery, missing category error, 403, offline/empty states, return navigation, mobile layout and no runtime exceptions');
 } finally {
   clearTimeout(deadline);
   socket?.close();

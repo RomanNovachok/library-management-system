@@ -8,6 +8,7 @@ import type { TestContext } from 'node:test';
 import { createApp } from '../src/app.js';
 import { categoryId, MemoryReadersRepository, missingId, otherCategoryId, validReaderInput } from './helpers/readers.repository.js';
 import type { Env } from '../src/config/env.js';
+import { requestSession, staffRequestHeaders } from './helpers/auth.repository.js';
 import { Prisma } from '../src/generated/prisma/client.js';
 import { PrismaReadersRepository } from '../src/modules/readers/readers.repository.js';
 
@@ -18,12 +19,14 @@ const readPage = async (response: Response) => z.object({ data: z.array(readerJs
 
 async function setup(t: TestContext, environment: Env['NODE_ENV'] = 'development') {
   const repository = new MemoryReadersRepository();
-  const server = createApp({ CORS_ORIGIN: 'https://frontend.example.test', NODE_ENV: environment }, { readersRepository: repository }).listen(0, '127.0.0.1');
+  const origin = 'https://frontend.example.test';
+  const auth = await requestSession('LIBRARIAN', environment === 'production');
+  const server = createApp({ CORS_ORIGIN: origin, NODE_ENV: environment }, { readersRepository: repository, authRepository: auth.repository }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
   const request = (path = '/readers', method = 'GET', body?: unknown) => fetch(`${base}${path}`, { method,
-    headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }),
+    headers: staffRequestHeaders(origin, auth.cookie), ...(body !== undefined && { body: JSON.stringify(body) }),
   });
   return { repository, request, base };
 }
@@ -106,14 +109,14 @@ test('rental history is paginated, scoped, stable and empty for a new reader', a
   assert.equal(JSON.stringify(repository.rentalRows), before);
 });
 
-test('production and test deny every Readers endpoint before parsing bodies or accessing repositories', async (t) => {
+test('unauthenticated Readers endpoints reject before parsing bodies or accessing repositories', async (t) => {
   for (const environment of ['production', 'test'] as const) {
     const { repository, base } = await setup(t, environment);
     const list = t.mock.method(repository, 'list');
     for (const [path, method] of [['/readers', 'GET'], ['/readers', 'POST'], [`/readers/${missingId}`, 'GET'], [`/readers/${missingId}`, 'PATCH'], [`/readers/${missingId}/rentals`, 'GET'], ['/reader-categories', 'GET']] as const) {
       const response = await fetch(`${base}${path}`, { method, headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '127.0.0.1', 'X-Role': 'ADMIN' }, ...(['POST', 'PATCH'].includes(method!) && { body: '{' }) });
-      assert.equal(response.status, 403);
-      assert.equal(z.object({ error: z.object({ code: z.string() }) }).parse(await response.json()).error.code, 'ADMIN_ACCESS_FORBIDDEN');
+      assert.equal(response.status, 401);
+      assert.equal(z.object({ error: z.object({ code: z.string() }) }).parse(await response.json()).error.code, 'AUTH_REQUIRED');
     }
     assert.equal(list.mock.callCount(), 0);
   }

@@ -80,7 +80,7 @@ test('Readers API creates and partially edits profiles without sending relation 
 });
 
 test('Readers API handles HTTP, connection, invalid category, malformed and mismatched responses without retries', async (t) => {
-  for (const [status, code] of [[400, 'READER_CATEGORY_NOT_FOUND'], [403, 'ADMIN_ACCESS_FORBIDDEN'], [404, 'READER_NOT_FOUND'], [409, 'READER_WRITE_CONFLICT'], [500, 'INTERNAL_SERVER_ERROR']]) {
+  for (const [status, code] of [[400, 'READER_CATEGORY_NOT_FOUND'], [403, 'ROLE_FORBIDDEN'], [404, 'READER_NOT_FOUND'], [409, 'READER_WRITE_CONFLICT'], [500, 'INTERNAL_SERVER_ERROR']]) {
     const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ error: { code } }, { status }));
     await assert.rejects(api.createReader(input, new AbortController().signal), (error) => error.status === status && error.code === code && /[А-ЯІЇЄа-яіїє]/.test(error.message));
     mock.mock.restore();

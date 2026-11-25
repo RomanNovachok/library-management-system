@@ -8,19 +8,11 @@ import { createApp } from '../src/app.js';
 import { Prisma } from '../src/generated/prisma/client.js';
 import { ApiError } from '../src/lib/api-error.js';
 import { prisma } from '../src/lib/prisma.js';
+import { databaseSnapshot } from './database-snapshot.js';
+import { requestSession, staffRequestHeaders } from '../test/helpers/auth.repository.js';
 import { PrismaBookCopiesRepository } from '../src/modules/book-copies/book-copies.repository.js';
 import type { BookCopiesRepository } from '../src/modules/book-copies/book-copies.repository.js';
-import { BookCopiesService } from '../src/modules/book-copies/book-copies.service.js';
 
-async function snapshot(db: Prisma.TransactionClient) {
-  return JSON.stringify(await Promise.all([
-    db.book.findMany({ orderBy: { id: 'asc' } }), db.bookCopy.findMany({ orderBy: { id: 'asc' } }),
-    db.rental.findMany({ orderBy: { id: 'asc' } }), db.reader.findMany({ orderBy: { id: 'asc' } }),
-    db.readerCategory.findMany({ orderBy: { id: 'asc' } }), db.damageRule.findMany({ orderBy: { id: 'asc' } }),
-    db.cashMovement.findMany({ orderBy: { id: 'asc' } }), db.staffUser.findMany({ orderBy: { id: 'asc' } }),
-    db.auditLog.findMany({ orderBy: { id: 'asc' } }),
-  ]));
-}
 
 // Both successful and failed operations roll back, including concurrent contenders.
 async function rolledBack<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -54,12 +46,13 @@ function transactionalRepository(tx: Prisma.TransactionClient) {
   });
 }
 
-async function withHttp<T>(repository: BookCopiesRepository, operation: (base: string) => Promise<T>) {
-  const app = createApp({ CORS_ORIGIN: 'https://frontend.example.com', NODE_ENV: 'development' }, { bookCopiesRepository: repository });
+async function withHttp<T>(repository: BookCopiesRepository, operation: (base: string, headers: ReturnType<typeof staffRequestHeaders>) => Promise<T>) {
+  const auth = await requestSession('ADMIN');
+  const app = createApp({ CORS_ORIGIN: 'https://frontend.example.com', NODE_ENV: 'development' }, { bookCopiesRepository: repository, authRepository: auth.repository });
   const server = app.listen(0, '127.0.0.1');
   try {
     await once(server, 'listening');
-    return await operation(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/books`);
+    return await operation(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/books`, staffRequestHeaders('https://frontend.example.com', auth.cookie));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -97,9 +90,9 @@ async function checkCrud(tx: Prisma.TransactionClient) {
   const book = await tx.book.create({ data: { title: `rollback-${randomUUID()}`, author: 'Test', genre: 'Test', dailyPrice: new Prisma.Decimal('1'), depositAmount: new Prisma.Decimal('10') } });
   const other = await tx.book.create({ data: { title: 'Other rollback book', author: 'Test', genre: 'Test', dailyPrice: new Prisma.Decimal('1'), depositAmount: new Prisma.Decimal('10') } });
   const marker = randomUUID();
-  await withHttp(transactionalRepository(tx), async (base) => {
+  await withHttp(transactionalRepository(tx), async (base, headers) => {
     const request = (path = '', method = 'GET', body?: unknown, parent = book.id) => fetch(`${base}/${parent}/copies${path}`, {
-      method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }),
+      method, headers, ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     assert.deepEqual(await readList(await request()), []);
     const response = await request('', 'POST', { inventoryCode: `  ${marker}  ` });
@@ -168,9 +161,9 @@ async function checkConcurrency() {
   assert.ok(existing, 'Concurrency checks require an existing copy of a non-archived book without an active rental; run the local seed first');
   // Even an unexpectedly successful contender is rolled back, so existing copies can never be deleted by this check.
   const contenderRepository = new PrismaBookCopiesRepository({ db: prisma, transaction: rolledBack });
-  await withHttp(contenderRepository, async (base) => {
+  await withHttp(contenderRepository, async (base, headers) => {
     const mutate = (method: string, body?: unknown) => fetch(`${base}/${existing.bookId}/copies${method === 'POST' ? '' : `/${existing.id}`}`, {
-      method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }),
+      method, headers, ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     await rolledBack(async (holder) => {
       await holder.$queryRaw`SELECT "id" FROM "BookCopy" WHERE "id" = ${existing.id}::uuid FOR UPDATE`;
@@ -224,12 +217,12 @@ try {
   assert.equal(identity?.database, 'library_db', 'Unexpected database identity');
   assert.equal(identity.username, 'library_user', 'Unexpected database user');
   assert.equal(identity.schema, 'public', 'Unexpected database schema');
-  const original = await snapshot(prisma);
+  const original = await databaseSnapshot(prisma);
   await rolledBack(checkCrud);
   await checkConcurrency();
-  assert.ok(await snapshot(prisma) === original, 'All nine tables must match their original snapshots after rollback');
+  assert.ok(await databaseSnapshot(prisma) === original, 'All ten tables must match their original snapshots after rollback');
   console.info('BookCopy integration passed: HTTP CRUD, filters, unique/FK errors, history preservation and real concurrent lock conflicts.');
-  console.info('Concurrent Rental insertions and Book archival respect copy CRUD locks; all writes rolled back and all nine tables unchanged.');
+  console.info('Concurrent Rental insertions and Book archival respect copy CRUD locks; all writes rolled back and all ten tables unchanged.');
 } catch (error) {
   console.error(error instanceof SeedSafetyError || error instanceof assert.AssertionError
     ? error.message

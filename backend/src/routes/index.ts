@@ -1,21 +1,49 @@
 import { json, Router } from 'express';
-import type { Env } from '../config/env.js';
-import type { BooksRepository } from '../modules/books/books.repository.js';
+import type { ApiConfig, ApiDependencies } from '../app.js';
 import { createBooksRouter } from '../modules/books/books.routes.js';
-import type { BookCopiesRepository } from '../modules/book-copies/book-copies.repository.js';
 import { createBookCopiesRouter } from '../modules/book-copies/book-copies.routes.js';
 import { createReadersRouter } from '../modules/readers/readers.routes.js';
-import type { ReadersRepository } from '../modules/readers/readers.repository.js';
+import { requireAuth, requireCsrf, requireRole } from '../middleware/staff-auth.js';
+import { AuthController } from '../modules/auth/auth.controller.js';
+import { PrismaAuthRepository } from '../modules/auth/auth.repository.js';
+import { AuthService } from '../modules/auth/auth.service.js';
+import { StaffController } from '../modules/staff/staff.controller.js';
+import { StaffService } from '../modules/staff/staff.service.js';
 
-export function createApiRouter(environment: Env['NODE_ENV'], booksRepository?: BooksRepository, bookCopiesRepository?: BookCopiesRepository, readersRepository?: ReadersRepository) {
+export function createApiRouter(config: ApiConfig, dependencies: ApiDependencies) {
   const apiRouter = Router();
+  const repository = dependencies.authRepository ?? new PrismaAuthRepository();
+  const ttl = (config.SESSION_TTL_SECONDS ?? 28800) * 1000;
+  const secure = config.NODE_ENV === 'production';
+  const cookieName = secure ? '__Secure-library_session' : 'library_session';
+  const authService = new AuthService(repository, ttl, dependencies.now);
+  const auth = new AuthController(authService, cookieName, {
+    httpOnly: true, secure, sameSite: secure ? config.SESSION_COOKIE_SAME_SITE ?? 'lax' : 'lax', path: '/api',
+  }, ttl);
+  const staff = new StaffController(new StaffService(repository, dependencies.now));
+  const csrf = requireCsrf(config.CORS_ORIGIN);
+  const admin = requireRole('ADMIN');
+  const authJson = json({ limit: '8kb' });
 
-  apiRouter.use('/books/:bookId/copies', createBookCopiesRouter(environment, bookCopiesRepository));
-  apiRouter.use('/books', createBooksRouter(environment, booksRepository));
-  apiRouter.use(createReadersRouter(environment, readersRepository));
-  apiRouter.use(json({ limit: '100kb' }));
+  apiRouter.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
   apiRouter.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
+  apiRouter.post('/auth/login', csrf, authJson, auth.login);
+  apiRouter.post('/auth/logout', csrf, auth.logout);
+
+  apiRouter.use(requireAuth(authService, cookieName), csrf);
+  apiRouter.get('/auth/me', auth.me);
+  apiRouter.post('/auth/change-password', authJson, auth.changePassword);
+  apiRouter.get('/staff', admin, staff.list);
+  apiRouter.post('/staff', admin, authJson, staff.create);
+  apiRouter.patch('/staff/:id', admin, authJson, staff.update);
+  apiRouter.post('/staff/:id/reset-password', admin, authJson, staff.resetPassword);
+  apiRouter.use('/books/:bookId/copies', createBookCopiesRouter(dependencies.bookCopiesRepository));
+  apiRouter.use('/books', createBooksRouter(dependencies.booksRepository));
+  apiRouter.use(createReadersRouter(dependencies.readersRepository));
   return apiRouter;
 }

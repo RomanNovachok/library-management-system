@@ -6,6 +6,7 @@ import type { TestContext } from 'node:test';
 import { z } from 'zod';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/config/env.js';
+import { requestSession, staffRequestHeaders } from './helpers/auth.repository.js';
 import { bookId, archivedBookId, missingBookId, MemoryBooksRepository, validBookInput } from './helpers/books.repository.js';
 
 const bookJson = z.object({
@@ -27,9 +28,11 @@ async function readError(response: Response) {
   return z.object({ error: z.object({ code: z.string(), message: z.string() }) }).parse(await response.json());
 }
 
-async function setup(t: TestContext, environment: Env['NODE_ENV'] = 'development') {
+async function setup(t: TestContext, environment: Env['NODE_ENV'] = 'development', role: 'ADMIN' | 'LIBRARIAN' = 'ADMIN') {
   const repository = new MemoryBooksRepository();
-  const app = createApp({ CORS_ORIGIN: 'https://frontend.example.com', NODE_ENV: environment }, { booksRepository: repository });
+  const origin = 'https://frontend.example.com';
+  const auth = await requestSession(role, environment === 'production');
+  const app = createApp({ CORS_ORIGIN: origin, NODE_ENV: environment }, { booksRepository: repository, authRepository: auth.repository });
   const server = app.listen(0, '127.0.0.1');
   t.after(async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -38,10 +41,10 @@ async function setup(t: TestContext, environment: Env['NODE_ENV'] = 'development
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/books`;
   const request = (path = '', method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${base}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { ...staffRequestHeaders(origin, auth.cookie), ...headers },
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
-  return { repository, request };
+  return { repository, request, headers: staffRequestHeaders(origin, auth.cookie) };
 }
 
 test('catalog excludes archived books and returns copy counts, decimal strings and pagination', async (t) => {
@@ -222,16 +225,16 @@ test('strict bodies reject missing fields, empty text, system fields and nested 
   }
 });
 
-test('production and test reject all administrative methods despite spoofed role and forwarding headers', async (t) => {
+test('librarians cannot write books despite spoofed role and forwarding headers', async (t) => {
   for (const environment of ['production', 'test'] as const) {
-    const { repository, request } = await setup(t, environment);
+    const { repository, request } = await setup(t, environment, 'LIBRARIAN');
     const original = JSON.stringify([...repository.books.values()]);
     for (const method of ['POST', 'PATCH', 'DELETE']) {
       const response = await request(method === 'POST' ? '' : `/${bookId}`, method, method === 'DELETE' ? undefined : validBookInput, {
         'X-Forwarded-For': '127.0.0.1', 'X-Role': 'ADMIN', Forwarded: 'for=127.0.0.1', Authorization: 'Bearer fake',
       });
       assert.equal(response.status, 403);
-      assert.equal((await readError(response)).error.code, 'ADMIN_ACCESS_FORBIDDEN');
+      assert.equal((await readError(response)).error.code, 'ROLE_FORBIDDEN');
     }
     assert.equal((await request()).status, 200);
     assert.equal(JSON.stringify([...repository.books.values()]), original);
@@ -247,8 +250,8 @@ test('unexpected repository errors return 500 without PostgreSQL or Prisma detai
   assert.deepEqual(await response.json(), { error: { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' } });
 });
 
-test('production rejects mutations before malformed or oversized JSON is parsed', async (t) => {
-  const { request } = await setup(t, 'production');
+test('role enforcement rejects mutations before malformed or oversized JSON is parsed', async (t) => {
+  const { request, headers } = await setup(t, 'production', 'LIBRARIAN');
   // Resolve a URL without exposing the server fixture through the API helper.
   const catalog = await request();
   const url = catalog.url;
@@ -256,10 +259,10 @@ test('production rejects mutations before malformed or oversized JSON is parsed'
   for (const method of ['POST', 'PATCH', 'DELETE']) {
     for (const body of ['{', JSON.stringify({ value: 'x'.repeat(110_000) })]) {
       const response = await fetch(method === 'POST' ? url : `${url}/${bookId}`, {
-        method, headers: { 'Content-Type': 'application/json' }, body,
+        method, headers, body,
       });
       assert.equal(response.status, 403);
-      assert.equal((await readError(response)).error.code, 'ADMIN_ACCESS_FORBIDDEN');
+      assert.equal((await readError(response)).error.code, 'ROLE_FORBIDDEN');
     }
   }
 });

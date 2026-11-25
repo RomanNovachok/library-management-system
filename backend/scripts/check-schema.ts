@@ -1,9 +1,9 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 
-const tables = ['StaffUser', 'ReaderCategory', 'Reader', 'Book', 'BookCopy', 'Rental', 'DamageRule', 'CashMovement', 'AuditLog'] as const;
+const tables = ['StaffUser', 'StaffSession', 'ReaderCategory', 'Reader', 'Book', 'BookCopy', 'Rental', 'DamageRule', 'CashMovement', 'AuditLog'] as const;
 type Table = typeof tables[number];
 const connectionString = process.env.DATABASE_URL;
 assert.ok(connectionString, 'DATABASE_URL is required.');
@@ -69,9 +69,26 @@ async function verifySchema() {
   assert.deepEqual(existingTables.rows.map((row) => row.table_name).sort(), [...tables, '_prisma_migrations'].sort());
 
   const foreignKeys = await client.query<{ name: string; deletion: string; validated: boolean }>("SELECT conname AS name, confdeltype AS deletion, convalidated AS validated FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace");
-  const expectedForeignKeys = ['Reader_categoryId_fkey', 'BookCopy_bookId_fkey', 'Rental_readerId_fkey', 'Rental_copyId_fkey', 'Rental_issuedById_fkey', 'Rental_closedById_fkey', 'Rental_damageRuleId_fkey', 'CashMovement_rentalId_fkey', 'CashMovement_recordedById_fkey', 'AuditLog_actorId_fkey'];
+  const expectedForeignKeys = ['StaffSession_staffUserId_fkey', 'Reader_categoryId_fkey', 'BookCopy_bookId_fkey', 'Rental_readerId_fkey', 'Rental_copyId_fkey', 'Rental_issuedById_fkey', 'Rental_closedById_fkey', 'Rental_damageRuleId_fkey', 'CashMovement_rentalId_fkey', 'CashMovement_recordedById_fkey', 'AuditLog_actorId_fkey'];
   assert.deepEqual(foreignKeys.rows.map((row) => row.name).sort(), expectedForeignKeys.sort());
-  for (const key of foreignKeys.rows) { assert.equal(key.deletion, 'r'); assert.equal(key.validated, true); }
+  for (const key of foreignKeys.rows) {
+    assert.equal(key.deletion, key.name === 'StaffSession_staffUserId_fkey' ? 'c' : 'r');
+    assert.equal(key.validated, true);
+  }
+  const sessionColumns = await client.query(`SELECT column_name, is_nullable, character_maximum_length
+    FROM information_schema.columns WHERE table_schema='public' AND table_name='StaffSession' ORDER BY ordinal_position`);
+  assert.deepEqual(sessionColumns.rows, [
+    { column_name: 'tokenHash', is_nullable: 'NO', character_maximum_length: 64 },
+    { column_name: 'staffUserId', is_nullable: 'NO', character_maximum_length: null },
+    { column_name: 'expiresAt', is_nullable: 'NO', character_maximum_length: null },
+  ]);
+  const sessionIndexes = await client.query<{ indexname: string; indexdef: string }>(
+    "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='StaffSession' ORDER BY indexname");
+  assert.deepEqual(sessionIndexes.rows.map(({ indexname }) => indexname),
+    ['StaffSession_expiresAt_idx', 'StaffSession_pkey', 'StaffSession_staffUserId_idx']);
+  assert.match(sessionIndexes.rows[0]!.indexdef, /\("expiresAt"\)/);
+  assert.match(sessionIndexes.rows[1]!.indexdef, /UNIQUE.*\("tokenHash"\)/);
+  assert.match(sessionIndexes.rows[2]!.indexdef, /\("staffUserId"\)/);
 
   const columns = await client.query<{ table_name: string; column_name: string; udt_name: string; column_default: string | null; numeric_precision: number | null; numeric_scale: number | null; datetime_precision: number | null }>("SELECT table_name, column_name, udt_name, column_default, numeric_precision, numeric_scale, datetime_precision FROM information_schema.columns WHERE table_schema='public' AND table_name <> '_prisma_migrations'");
   for (const column of columns.rows) {
@@ -104,7 +121,7 @@ async function verifySchema() {
   const checks = await client.query<{ convalidated: boolean }>("SELECT convalidated FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace");
   assert.equal(checks.rowCount, 16);
   assert.ok(checks.rows.every((row) => row.convalidated));
-  console.info('Catalog verified: 9 models, 10 RESTRICT foreign keys, 5 enums, UUID/Decimal/timestamptz/jsonb types, partial unique index and 16 CHECK constraints.');
+  console.info('Catalog verified: 10 models, session indexes and foreign key, finance/history constraints and 5 enums.');
 }
 
 async function verifyConstraints() {
@@ -112,6 +129,12 @@ async function verifyConstraints() {
   const suffix = randomUUID();
   const staffValues = { email: `schema-${suffix}@example.invalid`, passwordHash: 'schema-test-only', role: 'LIBRARIAN' };
   const staff = await insert('StaffUser', staffValues);
+  const insertSession = (digest: string, user: string) => client.query(
+    'INSERT INTO "StaffSession" ("tokenHash", "staffUserId", "expiresAt") VALUES ($1, $2, now())', [digest, user]);
+  const digest = randomBytes(32).toString('hex');
+  await insertSession(digest, staff);
+  await expectError(() => insertSession(digest, staff), '23505', 'StaffSession_pkey');
+  await expectError(() => insertSession(randomBytes(32).toString('hex'), randomUUID()), '23503', 'StaffSession_staffUserId_fkey');
   const categoryValues = { name: `schema-${suffix}`, discountPercent: '0.00' };
   const category = await insert('ReaderCategory', categoryValues);
   const reader = await insert('Reader', { fullName: 'Rolled back schema check', address: 'Transaction only', phone: 'test-only', categoryId: category });

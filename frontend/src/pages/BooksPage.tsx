@@ -7,8 +7,11 @@ import { BookForm } from '../components/forms/BookForm';
 import type { Book } from '../api/book-contract';
 import { useApiResource } from '../hooks/useApiResource';
 import { formatHryvnia } from '../utils/money';
+import { useAuth } from '../auth/useAuth';
 
 export function BooksPage() {
+  const { state } = useAuth();
+  const admin = state.status === 'authenticated' && state.user.role === 'ADMIN';
   const [params, setParams] = useSearchParams();
   const searchInput = (params.get('search') ?? '').slice(0, 1000);
   const search = searchInput.trim();
@@ -42,14 +45,13 @@ export function BooksPage() {
     <p className="eyebrow">Книжковий фонд</p>
     <div className="flex flex-wrap items-center justify-between gap-4">
       <h1 className="page-title">Книги</h1>
-      <button type="button" className="button-primary" onClick={() => setCreating(true)}>Додати книгу</button>
+      {admin && <button type="button" className="button-primary" onClick={() => setCreating(true)}>Додати книгу</button>}
     </div>
     <p className="mt-3 max-w-2xl text-sm leading-7 text-muted sm:text-base">Знайдіть потрібне видання та перегляньте доступність його примірників.</p>
-    <p className="mt-3 text-xs leading-5 text-muted">Керування фондом доступне лише для локальної розробки. Дозвіл на зміну перевіряє сервер.</p>
     {created && <p role="status" className="mt-5 break-words rounded-xl border border-line bg-sage p-4 text-sm leading-6 text-pine">
       Книгу «{created.title}» додано. Каталог відфільтровано за її назвою. <Link to={{ pathname: `/books/${created.id}`, search: params.toString() }} className="font-semibold underline">Переглянути книгу</Link>
     </p>}
-    {creating && <BookForm onClose={() => setCreating(false)} onRefresh={() => { setCreating(false); retry(); }} onSaved={(book) => {
+    {admin && creating && <BookForm onClose={() => setCreating(false)} onRefresh={() => { setCreating(false); retry(); }} onSaved={(book) => {
       setCreating(false);
       setCreated(book);
       setParams({ search: book.title });

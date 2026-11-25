@@ -7,6 +7,8 @@ actor "Адміністратор" as Admin
 Admin --|> Librarian
 rectangle "Library Management System" {
   usecase "Увійти в систему" as Login
+  usecase "Вийти із системи" as Logout
+  usecase "Змінити власний пароль" as ChangePassword
   usecase "Переглянути каталог і\nнаявність примірників" as Catalog
   usecase "Зареєструвати /\nредагувати читача" as Readers
   usecase "Видати книгу" as Issue
@@ -23,6 +25,8 @@ rectangle "Library Management System" {
   usecase "Керувати працівниками" as Staff
 }
 Librarian --> Login
+Librarian --> Logout
+Librarian --> ChangePassword
 Librarian --> Catalog
 Librarian --> Readers
 Librarian --> Issue

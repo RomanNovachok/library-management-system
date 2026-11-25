@@ -56,7 +56,15 @@ package "Domain" #F5F5F5 {
   }
   class StaffUser {
     +id: UUID
+    +email: string
+    -passwordHash: string
     +role: StaffRole
+    +isActive: boolean
+  }
+  class StaffSession {
+    -tokenHash: string
+    +staffUserId: UUID
+    +expiresAt: DateTime
   }
   Book "1" -- "*" BookCopy
   ReaderCategory "1" -- "*" Reader
@@ -64,6 +72,50 @@ package "Domain" #F5F5F5 {
   BookCopy "1" -- "*" Rental
   Rental "1" -- "*" CashMovement
   StaffUser "1" -- "*" AuditLog : performs
+  StaffUser "1" -- "*" StaffSession : authenticates
+}
+
+package "auth і staff — реалізований backend" #E3EAFE {
+  class AuthController {
+    +login(req, res)
+    +logout(req, res)
+    +me(req, res)
+    +changePassword(req, res)
+  }
+  class AuthService {
+    +login(email, password, address, previousHash)
+    +logout(tokenHash)
+    +authenticate(tokenHash): StaffIdentity
+    +changePassword(id, tokenHash, oldPassword, newPassword)
+  }
+  class StaffController {
+    +list(req, res)
+    +create(req, res)
+    +update(req, res)
+    +resetPassword(req, res)
+  }
+  class StaffService {
+    +bootstrap(email, password)
+    +list()
+    +create(tokenHash, email, role, password)
+    +update(tokenHash, id, patch)
+    +resetPassword(tokenHash, id, password)
+  }
+  interface AuthRepository {
+    +authenticate(tokenHash, now)
+    +findAccount(id)
+    +findByEmail(email)
+    +listAccounts()
+    +transaction(operation)
+  }
+  class PrismaAuthRepository
+  AuthController --> AuthService
+  StaffController --> StaffService
+  AuthService --> AuthRepository
+  StaffService --> AuthRepository
+  PrismaAuthRepository ..|> AuthRepository
+  PrismaAuthRepository ..> StaffUser
+  PrismaAuthRepository ..> StaffSession
 }
 
 package "books — реалізований backend" #E3EAFE {
@@ -186,7 +238,7 @@ package "readers — реалізований backend" #E3EAFE {
   PrismaReadersRepository ..> BookCopy : reads history
   PrismaReadersRepository ..> Book : reads title
   note bottom of ReadersService
-    Усі endpoints: development + loopback.
+    Усі endpoints: чинний сеанс працівника.
     Категорії з БД, поточна знижка Decimal.
     PATCH лише переданих полів Reader.
     Історичні знімки Rental незмінні.

@@ -1,6 +1,8 @@
 import { apiConfig } from './config';
 import { apiErrorMessage } from './error-messages';
 
+export const sessionEvents = new EventTarget();
+
 export class ApiError extends Error {
   readonly status?: number;
   readonly code?: string;
@@ -39,7 +41,12 @@ export async function requestJson<T>(path: string, options: RequestOptions, vali
   try {
     response = await fetch(`${apiConfig.baseUrl}${path}`, {
       signal, method,
-      headers: { Accept: 'application/json', ...(requestBody !== undefined && { 'Content-Type': 'application/json' }) },
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        ...(isMutation && { 'X-Library-Request': '1' }),
+        ...(requestBody !== undefined && { 'Content-Type': 'application/json' }),
+      },
       ...(requestBody !== undefined && { body: JSON.stringify(requestBody) }),
     });
   } catch (error) {
@@ -49,6 +56,9 @@ export async function requestJson<T>(path: string, options: RequestOptions, vali
 
   // HTTP status remains useful even if a proxy returns HTML instead of JSON.
   if (!response.ok) {
+    if (response.status === 401 && path !== '/auth/login' && path !== '/auth/me' && !signal.aborted) {
+      sessionEvents.dispatchEvent(new Event('expired'));
+    }
     let code: string | undefined;
     try {
       const body: unknown = await response.json();

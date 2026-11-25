@@ -11,6 +11,7 @@ import { CopyForm } from '../components/forms/CopyForm';
 import { ConfirmAction } from '../components/forms/ConfirmAction';
 import { useApiResource } from '../hooks/useApiResource';
 import { formatHryvnia } from '../utils/money';
+import { useAuth } from '../auth/useAuth';
 
 export function BookDetailsPage() {
   const { id = '' } = useParams();
@@ -20,6 +21,8 @@ export function BookDetailsPage() {
 type DialogState = { kind: 'editBook' | 'archiveBook' | 'createCopy' } | { kind: 'editCopy' | 'deleteCopy'; copy: BookCopy };
 
 function BookDetailsContent({ id }: { id: string }) {
+  const { state } = useAuth();
+  const admin = state.status === 'authenticated' && state.user.role === 'ADMIN';
   const { search } = useLocation();
   const navigate = useNavigate();
   const [dialog, setDialog] = useState<DialogState>();
@@ -46,15 +49,15 @@ function BookDetailsContent({ id }: { id: string }) {
       <p className="mx-auto mt-4 max-w-md text-sm leading-7 text-muted">Перевірте адресу або поверніться до каталогу, щоб обрати інше видання.</p>
     </div> : <><h1 className="sr-only">Деталі книги</h1><ErrorState error={resource.error} retry={retry} title="Не вдалося завантажити книгу" /></>)}
     {resource.status === 'success' && <>
-      {dialog?.kind === 'editBook' && <BookForm book={resource.data.book} onClose={() => setDialog(undefined)} onSaved={() => refresh('Зміни книги збережено.')} onRefresh={() => refresh()} />}
-      {dialog?.kind === 'archiveBook' && <ConfirmAction title="Архівувати книгу?" label="Архівувати книгу" action={(signal) => archiveBook(id, signal)} onClose={() => setDialog(undefined)} onRefresh={() => refresh()}
+      {admin && dialog?.kind === 'editBook' && <BookForm book={resource.data.book} onClose={() => setDialog(undefined)} onSaved={() => refresh('Зміни книги збережено.')} onRefresh={() => refresh()} />}
+      {admin && dialog?.kind === 'archiveBook' && <ConfirmAction title="Архівувати книгу?" label="Архівувати книгу" action={(signal) => archiveBook(id, signal)} onClose={() => setDialog(undefined)} onRefresh={() => refresh()}
         onSuccess={() => { setDialog(undefined); navigate({ pathname: '/books', search }, { replace: true }); }}>
         <p>«{resource.data.book.title}» зникне зі звичайного каталогу. Примірники та історія прокатів збережуться.</p>
         <p className="mt-3">Відновлення книги зараз недоступне.</p>
       </ConfirmAction>}
-      {(dialog?.kind === 'createCopy' || dialog?.kind === 'editCopy') && <CopyForm bookId={id} copy={dialog.kind === 'editCopy' ? dialog.copy : undefined} copies={resource.data.copies}
+      {admin && (dialog?.kind === 'createCopy' || dialog?.kind === 'editCopy') && <CopyForm bookId={id} copy={dialog.kind === 'editCopy' ? dialog.copy : undefined} copies={resource.data.copies}
         onClose={() => setDialog(undefined)} onSaved={() => refresh(dialog.kind === 'editCopy' ? 'Зміни примірника збережено.' : 'Примірник додано.')} onRefresh={() => refresh()} />}
-      {dialog?.kind === 'deleteCopy' && <ConfirmAction title="Видалити примірник?" label="Видалити примірник" action={(signal) => deleteBookCopy(id, dialog.copy.id, signal)} onClose={() => setDialog(undefined)} onRefresh={() => refresh()}
+      {admin && dialog?.kind === 'deleteCopy' && <ConfirmAction title="Видалити примірник?" label="Видалити примірник" action={(signal) => deleteBookCopy(id, dialog.copy.id, signal)} onClose={() => setDialog(undefined)} onRefresh={() => refresh()}
         onSuccess={() => refresh('Примірник видалено.')}>
         <p>Примірник «{dialog.copy.inventoryCode}» буде видалено без можливості відновлення.</p>
         <p className="mt-3">Дозволено видалення лише доступного примірника без історії прокатів. Ці умови остаточно перевірить сервер.</p>
@@ -66,23 +69,22 @@ function BookDetailsContent({ id }: { id: string }) {
         <p className="mt-3 break-words text-base leading-7 text-muted">{resource.data.book.author}</p>
         <p className="mt-4 inline-block max-w-full break-words rounded-lg bg-sage px-3 py-1.5 text-xs font-medium text-pine">{resource.data.book.genre}</p>
         {resource.data.book.archivedAt !== null && <p className="mt-4 text-sm text-amber-900">Архівне видання</p>}
-        {resource.data.book.archivedAt === null ? <div className="mt-5 flex flex-wrap gap-3">
+        {admin && resource.data.book.archivedAt === null && <div className="mt-5 flex flex-wrap gap-3">
           <button type="button" className="button-secondary" onClick={() => setDialog({ kind: 'editBook' })}>Редагувати</button>
           <button type="button" className="button-danger" onClick={() => setDialog({ kind: 'archiveBook' })}>Архівувати</button>
-        </div> : <p className="mt-3 text-sm text-muted">Керування архівною книгою та її примірниками недоступне.</p>}
+        </div>}
         <dl className="mt-7 grid gap-6 border-t border-line pt-6 sm:grid-cols-2">
           <div><dt className="text-sm text-muted">Ціна прокату за добу</dt><dd className="mt-2 wrap-anywhere text-2xl font-semibold tracking-tight text-ink">{formatHryvnia(resource.data.book.dailyPrice)}</dd></div>
           <div><dt className="text-sm text-muted">Застава</dt><dd className="mt-2 wrap-anywhere text-2xl font-semibold tracking-tight text-ink">{formatHryvnia(resource.data.book.depositAmount)}</dd></div>
         </dl>
       </section>
-      <p className="mt-4 text-xs leading-5 text-muted">Форми керування призначені лише для локальної розробки. Дозвіл на зміну перевіряє сервер.</p>
 
       <section aria-labelledby="copies-title" className="mt-8 overflow-hidden rounded-3xl border border-line bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-6 sm:px-8">
           <h2 id="copies-title" className="text-lg font-semibold tracking-tight text-ink">Фізичні примірники</h2>
           <p className="text-sm text-muted">Усього: <span className="font-medium text-ink">{resource.data.copies.length}</span></p>
           <p className="text-sm text-muted">Доступно: <span className="font-medium text-ink">{resource.data.copies.filter((copy) => copy.status === 'AVAILABLE').length}</span></p>
-          {resource.data.book.archivedAt === null && <button type="button" className="button-primary" onClick={() => setDialog({ kind: 'createCopy' })}>Додати примірник</button>}
+          {admin && resource.data.book.archivedAt === null && <button type="button" className="button-primary" onClick={() => setDialog({ kind: 'createCopy' })}>Додати примірник</button>}
         </div>
         {resource.data.copies.length === 0 ? <p className="px-6 py-12 text-center text-sm leading-7 text-muted">Для цієї книги ще немає фізичних примірників.</p>
           : <ul className="divide-y divide-line">
@@ -90,7 +92,7 @@ function BookDetailsContent({ id }: { id: string }) {
               <div className="min-w-0"><p className="mb-1 text-xs text-muted">Інвентарний номер</p><p className="break-words text-sm font-semibold text-ink">{copy.inventoryCode}</p></div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <CopyStatusBadge status={copy.status} />
-                {resource.data.book.archivedAt === null && <>
+                {admin && resource.data.book.archivedAt === null && <>
                   <button type="button" className="button-secondary" aria-label={`Редагувати примірник ${copy.inventoryCode}`} onClick={() => setDialog({ kind: 'editCopy', copy })}>Редагувати</button>
                   {copy.status === 'AVAILABLE' && <button type="button" className="button-danger" aria-label={`Видалити примірник ${copy.inventoryCode}`} onClick={() => setDialog({ kind: 'deleteCopy', copy })}>Видалити</button>}
                 </>}

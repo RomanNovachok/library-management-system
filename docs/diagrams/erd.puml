@@ -10,6 +10,12 @@ entity "StaffUser" as StaffUser {
   role : ADMIN | LIBRARIAN
   isActive : boolean
 }
+entity "StaffSession" as StaffSession {
+  * tokenHash : char(64) <<PK>>
+  --
+  staffUserId : UUID <<FK>>
+  expiresAt : DateTime
+}
 entity "ReaderCategory" as ReaderCategory {
   * id : UUID <<PK>>
   --
@@ -95,6 +101,7 @@ Book ||--o{ BookCopy : copies
 Reader ||--o{ Rental : rents
 BookCopy ||--o{ Rental : history
 StaffUser ||--o{ Rental : issues
+StaffUser ||--o{ StaffSession : has
 StaffUser |o--o{ Rental : closes
 DamageRule |o--o{ Rental : applied_on_close
 Rental ||--o{ CashMovement : movements
@@ -116,6 +123,7 @@ note bottom of Book
   Money: numeric(12,2), nonnegative, not NaN.
   Percentages: numeric(5,2), 0..100.
   DateTime: timestamptz(3); JSON: jsonb.
-  All FKs: ON DELETE RESTRICT.
+  Historical FKs: ON DELETE RESTRICT.
+  StaffSession staff FK: ON DELETE CASCADE.
 end note
 @enduml

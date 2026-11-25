@@ -8,19 +8,12 @@ import { createApp } from '../src/app.js';
 import { Prisma } from '../src/generated/prisma/client.js';
 import { ApiError } from '../src/lib/api-error.js';
 import { prisma } from '../src/lib/prisma.js';
+import { databaseSnapshot } from './database-snapshot.js';
+import { requestSession, staffRequestHeaders } from '../test/helpers/auth.repository.js';
 import { PrismaReadersRepository } from '../src/modules/readers/readers.repository.js';
 
 let stage = 'connection';
 
-async function snapshot(db: Prisma.TransactionClient) {
-  return JSON.stringify(await Promise.all([
-    db.book.findMany({ orderBy: { id: 'asc' } }), db.bookCopy.findMany({ orderBy: { id: 'asc' } }),
-    db.reader.findMany({ orderBy: { id: 'asc' } }), db.readerCategory.findMany({ orderBy: { id: 'asc' } }),
-    db.rental.findMany({ orderBy: { id: 'asc' } }), db.cashMovement.findMany({ orderBy: { id: 'asc' } }),
-    db.staffUser.findMany({ orderBy: { id: 'asc' } }), db.damageRule.findMany({ orderBy: { id: 'asc' } }),
-    db.auditLog.findMany({ orderBy: { id: 'asc' } }),
-  ]));
-}
 async function rolledBack<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   const rollback = new Error('Intentional Readers verification rollback');
   let result!: T;
@@ -48,11 +41,13 @@ async function checkApi(tx: Prisma.TransactionClient) {
   assert.ok(categories.length >= 2, 'At least two existing categories are required; do not reset the seed');
   const first = categories[0]!;
   const second = categories[1]!;
-  const server = createApp({ CORS_ORIGIN: 'https://frontend.example.test', NODE_ENV: 'development' }, { readersRepository: new PrismaReadersRepository(tx) }).listen(0, '127.0.0.1');
+  const auth = await requestSession('LIBRARIAN');
+  const headers = staffRequestHeaders('https://frontend.example.test', auth.cookie);
+  const server = createApp({ CORS_ORIGIN: 'https://frontend.example.test', NODE_ENV: 'development' }, { readersRepository: new PrismaReadersRepository(tx), authRepository: auth.repository }).listen(0, '127.0.0.1');
   try {
     await once(server, 'listening');
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
-    const request = (path: string, method = 'GET', body?: unknown) => fetch(`${base}${path}`, { method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }) });
+    const request = (path: string, method = 'GET', body?: unknown) => fetch(`${base}${path}`, { method, headers, ...(body !== undefined && { body: JSON.stringify(body) }) });
     const marker = `Reader-check-${randomUUID()}`;
     const input = { fullName: `${marker}-A`, address: 'Умовна тестова адреса 1', phone: '+380 (00) 000-00-01', categoryId: first.id };
     stage = 'HTTP create and list';
@@ -145,11 +140,11 @@ try {
   assert.equal(identity?.database, 'library_db');
   assert.equal(identity.username, 'library_user');
   assert.equal(identity.schema, 'public');
-  const original = await snapshot(prisma);
+  const original = await databaseSnapshot(prisma);
   try { await rolledBack(checkApi); }
-  finally { assert.ok(await snapshot(prisma) === original, 'All nine tables must be unchanged after Readers verification, including failed checks'); }
+  finally { assert.ok(await databaseSnapshot(prisma) === original, 'All ten tables must be unchanged after Readers verification, including failed checks'); }
   console.info('Readers integration passed: HTTP creation/details/search/filter/pages, literal SQL search, categories, overlapping partial PATCH, history and FK conflicts.');
-  console.info('Rental snapshots, cash movements and copies preserved; all nine tables unchanged after rollback. No seed reset or record deletion.');
+  console.info('Rental snapshots, cash movements and copies preserved; all ten tables unchanged after rollback. No seed reset or record deletion.');
 } catch (error) {
   console.error(error instanceof SeedSafetyError || error instanceof assert.AssertionError ? error.message : `Readers integration failed at ${stage}${error instanceof Prisma.PrismaClientKnownRequestError ? ` (${error.code})` : ''}. Personal and database details omitted.`);
   process.exitCode = 1;

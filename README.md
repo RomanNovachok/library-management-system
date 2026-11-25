@@ -3,7 +3,7 @@
 **Дисципліна:** Документування програмного забезпечення та шаблони проєктування  
 **Варіант:** 20 — Бібліотека (платний бібліотечний абонемент)
 
-> Backend підтримує health API, CRUD книг і примірників, реєстрацію та редагування читачів, категорії й перегляд історії прокатів. Frontend підключено до реального API: каталог, керування фондом і профілями читачів. Усі Readers API та зміни фонду доступні лише через фактичне loopback-з’єднання в development. Видача, повернення й авторизація ще заплановані.
+> Реалізовано вхід працівників, серверні сесії, перевірку ролей і керування обліковими записами. Працівники користуються каталогом, примірниками та профілями читачів через захищений API. Видача та повернення книг заплановані.
 
 ## Призначення
 
@@ -106,6 +106,8 @@ npm run dev
 | `NODE_ENV` | `development`, `test` або `production`; типово `development` |
 | `PORT` | Порт HTTP-сервера від 1 до 65535; типово `3000` |
 | `CORS_ORIGIN` | Обов'язковий точний origin frontend: протокол, хост і за потреби порт; без шляху та завершального `/` |
+| `SESSION_TTL_SECONDS` | Абсолютна тривалість сеансу, типово 28800 секунд (8 годин), від 60 до 604800 |
+| `SESSION_COOKIE_SAME_SITE` | `lax` типово, `none` доступне у production для HTTPS-запитів між різними сайтами |
 | `DATABASE_URL` | Приватний PostgreSQL connection URL для Prisma; приклад наведено в `backend/.env.example` |
 
 У `.env.example` наведено лише несекретні налаштування локального запуску. `dotenv` читає `.env` із поточної папки; змінні, вже задані в середовищі процесу, мають пріоритет. Некоректна конфігурація зупиняє запуск із повідомленням про відповідне поле. `.env`, залежності та `dist/` виключено з Git.
@@ -116,7 +118,58 @@ npm run dev
 Invoke-RestMethod http://localhost:3000/api/health
 ```
 
-Відповідь: HTTP `200`, JSON `{"status":"ok"}`. Health перевіряє роботу HTTP API без запиту до БД; каталог використовує PostgreSQL через спільний Prisma Client. CORS дозволяє браузерне читання відповіді лише для `CORS_ORIGIN` та обробляє preflight. Запити без `Origin` працюють; CORS не замінює майбутню автентифікацію. Передавання cookies через CORS поки не ввімкнено.
+Відповідь: HTTP `200`, JSON `{"status":"ok"}`. Health перевіряє роботу HTTP API без запиту до БД. CORS дозволяє браузеру читати credentialed-відповіді лише з налаштованого `CORS_ORIGIN` і обробляє preflight.
+
+## Вхід і керування працівниками
+
+### Перший адміністратор
+
+Після запуску PostgreSQL і заповнення `backend/.env` виконайте з `backend/`:
+
+```powershell
+npm ci
+npm run prisma:migrate:deploy
+npm run auth:bootstrap-admin
+npm run dev
+```
+
+Введіть електронну адресу, пароль і підтвердження. Пароль вводиться приховано в інтерактивному терміналі. Для нових паролів потрібно 12–128 символів, щонайменше одну літеру й одну цифру або спеціальний символ. Якщо активний адміністратор уже існує, команда завершується конфліктом. Seed наповнює каталог і довідники окремою командою.
+
+Запустіть frontend через `npm run dev` у `frontend/` та відкрийте `http://localhost:5173/login`. У шапці відображаються адреса, роль, кнопки зміни пароля й виходу. Адміністратор створює облікові записи, редагує адресу, роль і активність та встановлює нові паролі в розділі «Адміністрування». Після зміни власного пароля потрібно ввійти знову.
+
+| Можливість | ADMIN | LIBRARIAN |
+| --- | --- | --- |
+| Перегляд книг і примірників | Так | Так |
+| Створення, редагування, архівування книг і зміни примірників | Так | |
+| Реєстрація, перегляд, редагування читачів і перегляд їхньої історії | Так | Так |
+| Керування обліковими записами працівників | Так | |
+
+### Auth і Staff API
+
+| Метод і маршрут | Тіло запиту | Успішна відповідь |
+| --- | --- | --- |
+| `POST /api/auth/login` | `email, password` | `200`, `id, email, role`, cookie |
+| `POST /api/auth/logout` | — | `204`, відкликання поточного сеансу й очищення cookie. Повторний виклик також дає `204` |
+| `GET /api/auth/me` | — | `200`, лише `id, email, role` |
+| `POST /api/auth/change-password` | `oldPassword, newPassword` | `204`, відкликання всіх сеансів працівника |
+| `GET /api/staff` | — | `200`, масив записів `id, email, role, isActive` |
+| `POST /api/staff` | `email, role, password` | `201`, створений запис |
+| `PATCH /api/staff/:id` | підмножина `email, role, isActive` | `200`, оновлений запис |
+| `POST /api/staff/:id/reset-password` | `password` | `204`, відкликання всіх сеансів працівника |
+
+Усі маршрути під `/api` вимагають чинного сеансу, за винятком health, login, logout і CORS preflight. Запити зміни стану потребують точного `Origin` і заголовка `X-Library-Request: 1`. Немає чинного сеансу — `401 AUTH_REQUIRED`. Брак прав — `403 ROLE_FORBIDDEN`. Невдалий вхід повертає `401 INVALID_CREDENTIALS` з однаковим повідомленням для помилкових даних і неактивного запису. Перевищення ліміту спроб повертає `429 LOGIN_RATE_LIMITED`. Дублікат нормалізованої адреси дає `409 STAFF_EMAIL_EXISTS`. Система вимагає зберегти принаймні одного активного адміністратора, інакше зміна дає `409 LAST_ACTIVE_ADMIN`.
+
+### Cookies і HTTPS
+
+У локальних `backend/.env` та `frontend/.env` використовуйте `CORS_ORIGIN=http://localhost:5173` і `VITE_API_URL=http://localhost:3000/api`. Два порти утворюють різні origin одного сайту. `fetch` використовує `credentials: 'include'` і cookie `HttpOnly; SameSite=Lax; Path=/api`. Для послідовної роботи використовуйте ім'я `localhost` на обох адресах.
+
+У production потрібен HTTPS для frontend і backend, а cookie має атрибут `Secure`. Два HTTPS-піддомени одного власного домену можуть використовувати `SameSite=Lax`. Для різних сайтів, як-от стандартні домени Vercel і Render, налаштуйте `SESSION_COOKIE_SAME_SITE=none`. Браузерні правила сторонніх cookies можуть блокувати вхід навіть із цим параметром. [Документація Firefox про SameSite=None](https://developer.mozilla.org/en-US/docs/Mozilla/Firefox/Releases/131) · [Політика сторонніх cookies](https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Third-party_cookies).
+
+### Перевірки
+
+- Backend: `npm test`, `npm run typecheck`, `npm run build`. Тести HTTP підміняють repository в пам'яті.
+- Backend із локальною БД: `npm run db:check-auth` та `npm run db:check-schema`. Інтеграційні перевірки працюють у транзакціях із відкатом. Для auth порівнюються повні знімки всіх десяти таблиць і перевіряється блокування з окремого підключення.
+- Frontend: `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`, `npm run test:readers-ui`. Браузерний тест використовує Chrome або Chromium (`CHROME_PATH`) і перевіряє вхід, вихід, перезавантаження, ролі, форми працівників і сценарії читачів.
 
 Команди backend:
 
@@ -142,7 +195,7 @@ backend/
 │   ├── middleware/not-found.ts    # JSON-відповідь 404
 │   ├── modules/books/             # Routes, Controller → Service → Repository, Zod-схеми
 │   ├── modules/book-copies/       # Вкладені API примірників і транзакційні операції
-│   ├── middleware/development-loopback-only.ts # Тимчасове обмеження запису
+│   ├── middleware/staff-auth.ts   # Сесії, ролі та CSRF
 │   ├── lib/api-error.ts           # Безпечні помилки 400/403/404/409
 │   ├── routes/index.ts            # /api/health та /api/books
 │   ├── app.ts                     # Express, CORS, JSON і middleware
@@ -185,7 +238,8 @@ backend/
 | `npm run prisma:generate` | Згенерувати Prisma Client локально, без підключення до БД |
 | `npm run prisma:format` | Відформатувати лише `schema.prisma` |
 | `npm run db:check` | Згенерувати клієнт, виконати `SELECT 1` через Prisma і закрити пул з'єднань |
-| `npm run db:check-readers` | Перевірити Readers API, категорії та історію у rollback-транзакції зі знімками дев’яти таблиць |
+| `npm run db:check-readers` | Перевірити Readers API, категорії та історію у rollback-транзакції зі знімками десяти таблиць |
+| `npm run db:check-auth` | Перевірити Auth і Staff API та блокування у локальній PostgreSQL |
 | `npm run db:seed` | Згенерувати клієнт і запустити локальний транзакційний seed через Prisma CLI |
 | `npm run db:check-seed` | Перевірити seed, збереження редагованих значень і відкат у разі конфлікту |
 | `npm run prisma:migrate:dev -- --name describe_change --create-only` | Підготувати нову міграцію для перегляду, без її застосування до основної БД |
@@ -200,13 +254,13 @@ backend/
 
 ## Початкова схема та міграції
 
-Міграція `20261116000000_init_library_schema` створює `StaffUser`, `ReaderCategory`, `Reader`, `Book`, `BookCopy`, `Rental`, `DamageRule`, `CashMovement` та `AuditLog`. Prisma додатково веде службову таблицю `_prisma_migrations`. Нових бізнес-полів понад ERD не додано; у діаграмі уточнено відсутню лінію зв'язку `StaffUser` → `Rental.closedById`.
+Міграція `20261116000000_init_library_schema` створює `StaffUser`, `ReaderCategory`, `Reader`, `Book`, `BookCopy`, `Rental`, `DamageRule`, `CashMovement` та `AuditLog`. Міграція `20261125000000_add_staff_sessions` додає `StaffSession`: SHA-256 хеш токена, FK працівника, час завершення та індекси. Prisma веде службову таблицю `_prisma_migrations`.
 
 - Первинні та зовнішні ключі — PostgreSQL UUID. `gen_random_uuid()` генерує PK на рівні БД, без додаткових extensions.
 - Гроші — `numeric(12,2)`; відсотки — `numeric(5,2)`; часові мітки — `timestamptz(3)`; `AuditLog.details` — `jsonb`.
 - Ролі та стани мають native enum. Окремий `DamageOutcome` містить лише `AVAILABLE`, `MAINTENANCE`, `LOST`, оскільки результат пошкодження не може бути `RENTED`.
-- Унікальні: email працівника, назва категорії, інвентарний номер та код правила пошкодження. Порівняння рядків чутливе до регістру; нормалізацію email перед записом потрібно передбачити на етапі авторизації.
-- Усі 10 FK використовують `ON DELETE RESTRICT`; історичні зв'язки, включно з необов'язковими `closedById` і `damageRuleId`, не очищаються каскадно. Книги архівуються через `archivedAt`, працівники деактивуються через `isActive`.
+- Унікальні: нормалізований email працівника, назва категорії, інвентарний номер та код правила пошкодження. API і bootstrap обрізають пробіли й переводять email у нижній регістр.
+- Десять FK початкової міграції використовують `ON DELETE RESTRICT`, включно з необов'язковими `closedById` і `damageRuleId`. FK сеансу використовує `ON DELETE CASCADE`. Книги архівуються через `archivedAt`, працівники деактивуються через `isActive`.
 - `AuditLog.entityId` — UUID універсального посилання, не FK. Єдиний FK журналу — `actorId`. `action` і `entityType` залишено рядками відповідно до ERD.
 
 `Rental` зберігає всі узгоджені snapshots: денну ціну, заставу, відсоток знижки, назву категорії (`readerCategorySnapshot`) та застосований під час закриття відсоток штрафу (`damagePercentSnapshot`). Індекси покривають FK, каталог, історію прокатів, прострочення та часові діапазони звітів.
@@ -350,7 +404,9 @@ Zod перевіряє UUID, query та body. POST вимагає `title`, `auth
 | --- | --- | --- |
 | `400` | `VALIDATION_ERROR` | Некоректний UUID, body або query |
 | `400` | `INVALID_JSON` | Синтаксична помилка JSON |
-| `403` | `ADMIN_ACCESS_FORBIDDEN` | Запис поза development або з TCP-адреси поза loopback |
+| `401` | `AUTH_REQUIRED` | Чинний сеанс відсутній |
+| `403` | `ROLE_FORBIDDEN` | Операція запису вимагає ролі ADMIN |
+| `403` | `CSRF_REJECTED` | Некоректний Origin або відсутній захисний заголовок |
 | `404` | `BOOK_NOT_FOUND` | Книги немає |
 | `409` | `BOOK_ARCHIVED` | PATCH або повторний DELETE архівованої книги |
 | `413` | `PAYLOAD_TOO_LARGE` | JSON перевищує 100 КіБ |
@@ -358,26 +414,25 @@ Zod перевіряє UUID, query та body. POST вимагає `title`, `auth
 
 Формат помилок збережено: `{"error":{"code":"BOOK_NOT_FOUND","message":"Book not found"}}`. Архівування не видаляє книгу, примірники або історію прокатів; повторний DELETE зберігає початкову дату архівування. PATCH архівованої книги заборонений до окремого відновлення; endpoint відновлення в це завдання не входить. Назва/автор/жанр не мають UNIQUE, тож однойменні видання дозволені.
 
-### Тимчасовий доступ до запису
-
-GET доступні без авторизації для локальної перевірки, включно з `includeArchived=true` та деталями архівованих книг. POST/PATCH/DELETE дозволені **лише при `NODE_ENV=development` та фактичному TCP-підключенні з loopback** (`127.0.0.0/8`, `::1`, IPv4-mapped loopback). У `production` і `test` вони повертають `403` до розбору JSON. Якщо `createApp` не отримав `NODE_ENV`, запис також заборонений.
-
-Перевіряється `req.socket.remoteAddress`; `trust proxy` вимкнено. `X-Forwarded-For`, `Forwarded`, `Authorization`, заголовки ролей та інші довільні HTTP-заголовки не надають прав. **Це тимчасове обмеження для розробки, а не автентифікація чи RBAC.** Локальний reverse proxy теж може виглядати як loopback-підключення: не публікуйте development-сервер через проксі або тунель. Перед публічним деплоєм потрібно окремо реалізувати автентифікацію та RBAC; production-заборону не слід обходити перемиканням `NODE_ENV`.
-
 ### Перевірка API в PowerShell
 
 ```powershell
-$api = 'http://127.0.0.1:3000/api'
+$api = 'http://localhost:3000/api'
+$headers = @{ Origin = 'http://localhost:5173'; 'X-Library-Request' = '1' }
+$account = Get-Credential -Message 'Введіть email і пароль адміністратора'
+$login = @{ email = $account.UserName; password = $account.GetNetworkCredential().Password } | ConvertTo-Json
+Invoke-RestMethod "$api/auth/login" -Method Post -Headers $headers -ContentType 'application/json' -Body $login -SessionVariable librarySession
+Remove-Variable account,login
 Invoke-RestMethod "$api/health"
-Invoke-RestMethod "$api/books?search=Леся&page=1&pageSize=10"
-Invoke-RestMethod "$api/books?includeArchived=true"
+Invoke-RestMethod "$api/books?search=Леся&page=1&pageSize=10" -WebSession $librarySession
+Invoke-RestMethod "$api/books?includeArchived=true" -WebSession $librarySession
 
 $body = @{ title = 'Приклад'; author = 'Автор'; genre = 'Роман'; dailyPrice = '12.50'; depositAmount = '300.00' } | ConvertTo-Json
-$created = Invoke-RestMethod "$api/books" -Method Post -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+$created = Invoke-RestMethod "$api/books" -WebSession $librarySession -Headers $headers -Method Post -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
 $bookId = $created.data.id
-Invoke-RestMethod "$api/books/$bookId"
-Invoke-RestMethod "$api/books/$bookId" -Method Patch -ContentType 'application/json' -Body '{"dailyPrice":"15.00"}'
-Invoke-RestMethod "$api/books/$bookId" -Method Delete
+Invoke-RestMethod "$api/books/$bookId" -WebSession $librarySession
+Invoke-RestMethod "$api/books/$bookId" -WebSession $librarySession -Headers $headers -Method Patch -ContentType 'application/json' -Body '{"dailyPrice":"15.00"}'
+Invoke-RestMethod "$api/books/$bookId" -WebSession $librarySession -Headers $headers -Method Delete
 ```
 
 POST/PATCH/DELETE у прикладі змінюють локальну БД: створений запис залишається архівованим. Для автоматизованої перевірки **без збереження тестових записів** виконайте з `backend/`:
@@ -391,11 +446,11 @@ npm run db:check-books
 
 `npm test` використовує підмінений repository, не читає `DATABASE_URL` і не підключається до PostgreSQL. Перевіряються каталог, пошук, пагінація, деталі, створення, PATCH, архівування, збереження наявних даних, 400/403/404/409/500 та захист від підроблених заголовків; наявні health/CORS/JSON-тести збережено.
 
-`db:check-books` окремо використовує чинний `backend/.env` та спільний Prisma Client. Дозволені лише локальні `library_db:5433`, `library_user`, схема `public`, без production; повторно перевіряється SQL-ідентичність підключення. HTTP-запити працюють із repository, якому передано транзакційний клієнт. Успішний сценарій навмисно завершується `ROLLBACK`, помилка також відкочує транзакцію; після завершення порівнюються повні знімки всіх дев'яти таблиць. Міграції та seed команда не запускає; очищення БД не виконується. Запускайте перевірку без паралельного редагування даних, щоб порівняння знімків було достовірним.
+`db:check-books` використовує чинний `backend/.env` і спільний Prisma Client. Перевірка обмежена локальною `library_db:5433`, користувачем `library_user`, схемою `public` і непродуктивним середовищем. Інтеграція виконує HTTP-запити з активним тестовим сеансом і транзакційним repository каталогу. Усі зміни відкочуються, а після перевірки порівнюються знімки десяти таблиць. На час перевірки призупиніть паралельне редагування даних.
 
 ## REST API фізичних примірників (BookCopy)
 
-Модуль `backend/src/modules/book-copies/` використовує Controller → Service → Repository, наявні Prisma Client, Zod, `ApiError` та `development-loopback-only`. GET тимчасово доступні без авторизації, включно з примірниками архівованої книги. POST/PATCH/DELETE дозволені лише в development із фактичного loopback TCP-підключення; у production/test повертають `403` до розбору JSON. Це тимчасове обмеження, а не автентифікація/RBAC; заголовки ролей і проксі не надають прав.
+Модуль `backend/src/modules/book-copies/` використовує Controller → Service → Repository, Prisma Client, Zod і `ApiError`. Обидві ролі можуть переглядати примірники, включно з примірниками архівованої книги. Для POST, PATCH і DELETE сервер перевіряє роль ADMIN до розбору тіла.
 
 | Метод і endpoint | Результат |
 | --- | --- |
@@ -436,25 +491,25 @@ POST приймає тільки `{ "inventoryCode": "INV-NEW-001" }`. Код о
 
 Усі зміни транзакційні. Перед записом repository бере `FOR SHARE NOWAIT` на книгу й `FOR UPDATE NOWAIT` на примірник; для створення потрібне лише блокування книги. Це узгоджує операції з архівуванням Books і FK-блокуваннями Rental. Перевірки статусу й історії додатково входять до умов UPDATE/DELETE. Історія прокатів і пов'язані грошові записи CRUD не змінює. Формат помилок: `{"error":{"code":"COPY_HAS_RENTALS","message":"A copy with rental history cannot be deleted"}}`.
 
-Приклад локальних запитів PowerShell (створений примірник наприкінці видаляється; книга повинна існувати й бути неархівованою):
+Для запитів PowerShell використайте `$api`, `$headers` і `$librarySession` із прикладу входу вище. Укажіть UUID наявної неархівованої книги.
 
 ```powershell
-$api = 'http://127.0.0.1:3000/api'
 $bookId = 'c7c0e4b4-87c4-4c6a-a841-18fdbed10002'
 $copiesUrl = "$api/books/$bookId/copies"
-Invoke-RestMethod $copiesUrl
-Invoke-RestMethod "${copiesUrl}?status=AVAILABLE"
-$created = Invoke-RestMethod $copiesUrl -Method Post -ContentType 'application/json' -Body '{"inventoryCode":"INV-NEW-001"}'
+Invoke-RestMethod $copiesUrl -WebSession $librarySession
+Invoke-RestMethod "${copiesUrl}?status=AVAILABLE" -WebSession $librarySession
+$created = Invoke-RestMethod $copiesUrl -WebSession $librarySession -Headers $headers -Method Post -ContentType 'application/json' -Body '{"inventoryCode":"INV-NEW-001"}'
 $copyId = $created.data.id
-Invoke-RestMethod "$copiesUrl/$copyId"
-Invoke-RestMethod "$copiesUrl/$copyId" -Method Patch -ContentType 'application/json' -Body '{"inventoryCode":"INV-NEW-002","status":"MAINTENANCE"}'
-Invoke-RestMethod "$copiesUrl/$copyId" -Method Patch -ContentType 'application/json' -Body '{"status":"AVAILABLE"}'
-Invoke-RestMethod "$copiesUrl/$copyId" -Method Delete
+Invoke-RestMethod "$copiesUrl/$copyId" -WebSession $librarySession
+Invoke-RestMethod "$copiesUrl/$copyId" -WebSession $librarySession -Headers $headers -Method Patch -ContentType 'application/json' -Body '{"inventoryCode":"INV-NEW-002","status":"MAINTENANCE"}'
+Invoke-RestMethod "$copiesUrl/$copyId" -WebSession $librarySession -Headers $headers -Method Patch -ContentType 'application/json' -Body '{"status":"AVAILABLE"}'
+Invoke-RestMethod "$copiesUrl/$copyId" -WebSession $librarySession -Headers $headers -Method Delete
+Invoke-RestMethod "$api/auth/logout" -WebSession $librarySession -Headers $headers -Method Post
 ```
 
 У `backend/` запустіть `npm test`, `npm run typecheck`, `npm run build`. Автоматизовані тести використовують підмінений repository й не підключаються до БД. Окрема команда `npm run db:check-book-copies` працює лише з локальною `library_db:5433`/`library_user`/`public`, перевіряє SQL-ідентичність з'єднання та потребує хоча б одного наявного примірника неархівованої книги без активного прокату для конкурентних сценаріїв.
 
-Інтеграційна перевірка створює тестові книги, примірники та мінімальні Rental-фікстури тільки всередині транзакцій. Кожен успішний і невдалий сценарій, включно з конкурентними запитами, відкочується; SQL-помилки ізолюються SAVEPOINT. Окремі з'єднання перевіряють конкуренцію з редагуванням/видаленням примірника, архівуванням книги та вставкою Rental в обох напрямках блокування. Навіть несподівано успішний конкурентний DELETE відкочується. Після завершення порівнюються повні знімки всіх дев'яти таблиць; тестових записів не залишається. Seed/міграції не запускаються, наявні дані не видаляються. Перевірку слід запускати без стороннього паралельного редагування БД.
+Інтеграційна перевірка створює тестові книги, примірники та мінімальні Rental-фікстури тільки всередині транзакцій. Кожен успішний і невдалий сценарій, включно з конкурентними запитами, відкочується; SQL-помилки ізолюються SAVEPOINT. Окремі з'єднання перевіряють конкуренцію з редагуванням/видаленням примірника, архівуванням книги та вставкою Rental в обох напрямках блокування. Навіть несподівано успішний конкурентний DELETE відкочується. Після завершення порівнюються повні знімки всіх десяти таблиць; тестових записів не залишається. Seed/міграції не запускаються, наявні дані не видаляються. Перевірку слід запускати без стороннього паралельного редагування БД.
 
 ## Локальний запуск frontend
 
@@ -469,9 +524,9 @@ npm run dev
 
 У Linux/macOS використовуйте `cp .env.example .env`; наявний `.env` не перезаписуйте. Якщо PowerShell блокує `npm.ps1`, запускайте `npm.cmd`. Відкрийте `http://localhost:5173`. Порт розробки зафіксовано: якщо він зайнятий, Vite повідомить про помилку замість автоматичного переходу на інший порт.
 
-Для каталогу потрібні запущений backend із доступною PostgreSQL та налаштований `frontend/.env`. У другому терміналі виконайте `cd backend`, потім `npm run dev` із кореня репозиторію. Backend використовує власний `backend/.env`; `CORS_ORIGIN` має точно збігатися з origin відкритого frontend (для прикладу — `http://localhost:5173`, без завершального `/`). Для вже наповненої БД повторні міграції або seed не потрібні. Запуск PostgreSQL описано вище.
+Для каталогу потрібні запущений backend, PostgreSQL з усіма міграціями й налаштований `frontend/.env`. У другому терміналі виконайте `cd backend`, потім `npm run dev`. Значення `CORS_ORIGIN` у `backend/.env` має точно збігатися з origin відкритого frontend, наприклад `http://localhost:5173`. Порядок міграцій і створення акаунта наведено в розділі [Вхід і керування працівниками](#вхід-і-керування-працівниками).
 
-Каталог і Readers виконують реальні запити; без backend показують помилку та кнопку повторної спроби. На головній є посилання на розділи; Rentals, Reports та Administration залишаються явно позначеними запланованими модулями. Повноцінну авторизацію ще не реалізовано.
+Каталог і Readers виконують запити до захищеного backend API. «Адміністрування» доступне адміністраторам і містить керування працівниками. «Прокати», «Звіти» та інші адміністративні налаштування позначено як заплановані.
 
 | Адреса | Сторінка |
 | --- | --- |
@@ -500,11 +555,11 @@ npm run dev
 - Використовуються вкладені `POST/PATCH/DELETE /api/books/:bookId/copies[/:copyId]`. Видалення пропонується лише для `AVAILABLE` і потребує підтвердження. Історію прокатів та активний прокат перевіряє сервер; `409` пояснює причину українською. Унікальність номера у всьому фонді гарантує backend; frontend також перевіряє дублікати серед завантажених примірників.
 - Під час мутації форма й повторне надсилання блокуються синхронним захистом та станом збереження. Запити запису не запускаються з ефектів і не повторюються автоматично. Після успіху дані й лічильники перечитуються. Після мережевої помилки або некоректної успішної відповіді результат запису може бути невідомим: повторне надсилання блокується до закриття форми або «Оновити дані», щоб спочатку перевірити фактичний стан.
 
-Форми призначені **лише для локальної розробки**. Backend має працювати з `NODE_ENV=development` та приймати запит із фактичної loopback TCP-адреси. UI не створює ролей і не є механізмом захисту. `403` показує пояснення цього обмеження. Архівування, конкурентні зміни, історія прокатів та унікальність остаточно перевіряються backend. У разі `404`/`409` у формі можна перечитати дані кнопкою «Оновити дані».
+Форми керування книгами й примірниками доступні з роллю ADMIN. Права, історію прокатів, унікальність і конкурентні зміни перевіряє backend. У разі `404` або `409` у формі можна перечитати дані кнопкою «Оновити дані».
 
 ### Readers API та інтерфейс
 
-Усі наведені маршрути захищені наявним `developmentLoopbackOnly`: потрібні одночасно `NODE_ENV=development` і фактична loopback TCP-адреса (`127.0.0.0/8`, `::1` або IPv4-mapped loopback). У production/test повертається `403 ADMIN_ACCESS_FORBIDDEN`, включно з GET, **до** розбору JSON і звернення до БД. Заголовки `Forwarded`, `X-Forwarded-For`, ролі та `req.ip` не надають прав. `trust proxy=false`; відповіді Readers мають `Cache-Control: no-store`. Проксі з локальним TCP-з’єднанням не можна виставляти назовні в development: guard бачить саме проксі. Перед розгортанням потрібні справжні автентифікація та RBAC. Читач не має акаунта входу.
+Для Readers API, включно з довідником категорій і деталями, потрібен чинний сеанс працівника. Обидві ролі можуть працювати з читачами. Відповіді мають `Cache-Control: no-store`. Вхід доступний лише працівникам.
 
 | Метод і маршрут | Результат |
 | --- | --- |
@@ -564,7 +619,7 @@ npm run db:check-readers
 npm run test:readers-ui
 ```
 
-`db:check-readers` виконує HTTP-перевірки у rollback-транзакції, створює лише вигадані тимчасові fixtures, перевіряє збереження всіх полів Rental, CashMovement і BookCopy після зміни категорії/контактів, FK-конфлікт та повні знімки **всіх дев’яти таблиць** після відкату, включно з помилками тестів. Накладені HTTP PATCH у цьому сценарії використовують одну транзакційну connection; окремі вкладки не мають optimistic concurrency control. `db:check-seed` розрахований на початкову БД без операційних записів і після реєстрації читачів може не підходити: не очищайте БД заради цієї перевірки.
+`db:check-readers` виконує HTTP-перевірки у rollback-транзакції, створює лише вигадані тимчасові fixtures, перевіряє збереження всіх полів Rental, CashMovement і BookCopy після зміни категорії/контактів, FK-конфлікт та повні знімки **всіх десяти таблиць** після відкату, включно з помилками тестів. Накладені HTTP PATCH у цьому сценарії використовують одну транзакційну connection; окремі вкладки не мають optimistic concurrency control. `db:check-seed` розрахований на початкову БД без операційних записів і після реєстрації читачів може не підходити: не очищайте БД заради цієї перевірки.
 
 Браузерна перевірка запускає справжні React/Express з тестовим repository у пам’яті; PostgreSQL не відкривається. Вона перевіряє список, пошук/фільтр/пагінацію, категорії, валідацію, створення/редагування, порожню історію, помилки й повторне завантаження категорій, 403, недоступний сервер, навігацію, мобільний інтерфейс та одиничні POST/PATCH при подвійному submit. Тимчасовий профіль браузера зберігається в ігнорованому `frontend/node_modules/.cache/`.
 
@@ -648,6 +703,8 @@ Factory Method (генератори звітів), Template Method (проце�
    - [x] Backend CRUD примірників: інвентарні номери, адміністративні статуси, захист історії та конкурентних операцій
    - [x] Frontend: реальний каталог Books API, пошук, пагінація та перегляд примірників
    - [x] Frontend CRUD книг і примірників із формами, підтвердженнями та обробкою конфліктів
+   - [x] Реєстрація, редагування та історія читачів
+   - [x] Сеанси працівників, перевірка ролей і керування обліковими записами
 5. [ ] Видача, повернення, фінансові розрахунки
 6. [ ] Звіти, панель адміністратора
 7. [ ] Тести й остаточна документація

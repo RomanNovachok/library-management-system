@@ -51,6 +51,18 @@ model StaffUser {
   closedRentals Rental[]       @relation("ClosedRentals")
   cashMovements CashMovement[]
   auditLogs     AuditLog[]
+  sessions      StaffSession[]
+}
+
+model StaffSession {
+  tokenHash   String   @id @db.Char(64)
+  staffUserId String   @db.Uuid
+  expiresAt   DateTime @db.Timestamptz(3)
+
+  staffUser StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  @@index([staffUserId])
+  @@index([expiresAt])
 }
 
 model ReaderCategory {

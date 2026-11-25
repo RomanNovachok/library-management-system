@@ -7,17 +7,34 @@ import { createApiRouter } from './routes/index.js';
 import type { BooksRepository } from './modules/books/books.repository.js';
 import type { BookCopiesRepository } from './modules/book-copies/book-copies.repository.js';
 import type { ReadersRepository } from './modules/readers/readers.repository.js';
+import type { AuthRepository } from './modules/auth/auth.repository.js';
+
+export type ApiConfig = Pick<Env, 'CORS_ORIGIN'> &
+  Partial<Pick<Env, 'NODE_ENV' | 'SESSION_TTL_SECONDS' | 'SESSION_COOKIE_SAME_SITE'>>;
+
+export interface ApiDependencies {
+  booksRepository?: BooksRepository;
+  bookCopiesRepository?: BookCopiesRepository;
+  readersRepository?: ReadersRepository;
+  authRepository?: AuthRepository;
+  now?: () => Date;
+}
 
 export function createApp(
-  config: Pick<Env, 'CORS_ORIGIN'> & Partial<Pick<Env, 'NODE_ENV'>>,
-  dependencies: { booksRepository?: BooksRepository; bookCopiesRepository?: BookCopiesRepository; readersRepository?: ReadersRepository } = {},
+  config: ApiConfig,
+  dependencies: ApiDependencies = {},
 ) {
   const app = express();
 
   app.disable('x-powered-by');
   app.set('trust proxy', false);
-  app.use(cors({ origin: [config.CORS_ORIGIN] }));
-  app.use('/api', createApiRouter(config.NODE_ENV ?? 'test', dependencies.booksRepository, dependencies.bookCopiesRepository, dependencies.readersRepository));
+  app.use(cors({
+    origin: [config.CORS_ORIGIN],
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-Library-Request'],
+  }));
+  app.use('/api', createApiRouter(config, dependencies));
   app.use(notFound);
   app.use(errorHandler);
 

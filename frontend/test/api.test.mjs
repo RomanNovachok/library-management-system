@@ -34,6 +34,8 @@ test('mutation endpoints serialize exact decimal strings and send each HTTP meth
         assert.equal(url, `https://api.example.test/api${suffix}`);
         assert.equal(options.method, method);
         assert.equal(options.signal, signal);
+        assert.equal(options.credentials, 'include');
+        assert.equal(options.headers['X-Library-Request'], '1');
         assert.equal(options.body, body === undefined ? undefined : JSON.stringify(body));
         assert.equal(options.headers['Content-Type'], body === undefined ? undefined : 'application/json');
         return response ? Response.json(response, { status: method === 'POST' ? 201 : 200 }) : new Response(null, { status: 204 });
@@ -45,7 +47,7 @@ test('mutation endpoints serialize exact decimal strings and send each HTTP meth
 });
 
 test('400/403/404/409/500 keep structured status/code and Ukrainian messages', async (t) => {
-  for (const [status, code] of [[400, 'VALIDATION_ERROR'], [403, 'ADMIN_ACCESS_FORBIDDEN'], [404, 'COPY_NOT_FOUND'], [409, 'INVENTORY_CODE_EXISTS'], [500, 'INTERNAL_SERVER_ERROR']]) {
+  for (const [status, code] of [[400, 'VALIDATION_ERROR'], [403, 'ROLE_FORBIDDEN'], [404, 'COPY_NOT_FOUND'], [409, 'INVENTORY_CODE_EXISTS'], [500, 'INTERNAL_SERVER_ERROR']]) {
     await t.test(String(status), async (subtest) => {
       subtest.mock.method(globalThis, 'fetch', async () => Response.json({ error: { code, message: 'Server message' } }, { status }));
       await assert.rejects(api.createBook(input, new AbortController().signal), (error) => error instanceof ApiError

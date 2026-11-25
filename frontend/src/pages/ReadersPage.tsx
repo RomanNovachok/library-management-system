@@ -31,7 +31,6 @@ export function ReadersPage() {
       <button type="button" className="button-primary" onClick={() => setCreating(true)}>Додати читача</button>
     </div>
     <p className="mt-3 text-sm leading-7 text-muted">Реєстрація, контактні дані, категорії та історія прокатів читачів.</p>
-    <p className="mt-2 text-xs leading-5 text-muted">Персональні дані доступні лише під час локальної розробки. Доступ перевіряє сервер.</p>
     {created && <p role="status" className="mt-5 rounded-xl border border-line bg-sage p-4 text-sm text-pine">Читача зареєстровано. <Link className="font-semibold underline" to={{ pathname: `/readers/${created.id}`, search: params.toString() }}>Переглянути профіль</Link></p>}
     {creating && <ReaderForm onClose={() => setCreating(false)} onRefresh={() => { setCreating(false); retry(); categories.retry(); }} onSaved={(reader) => {
       setCreating(false); setCreated(reader); setParams({ search: reader.fullName }); retry();

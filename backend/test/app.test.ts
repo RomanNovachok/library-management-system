@@ -6,6 +6,7 @@ import { after, before, test } from 'node:test';
 import express from 'express';
 import { createApp } from '../src/app.js';
 import { errorHandler } from '../src/middleware/error-handler.js';
+import { staffRequestHeaders } from './helpers/auth.repository.js';
 
 const origin = 'https://frontend.example.com';
 const server = createServer(createApp({ CORS_ORIGIN: origin }));
@@ -32,7 +33,7 @@ test('GET /api/health returns HTTP 200 and JSON status', async () => {
 });
 
 test('unknown routes return a JSON 404', async () => {
-  const response = await fetch(`${baseUrl}/api/unknown`);
+  const response = await fetch(`${baseUrl}/unknown`);
 
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), {
@@ -41,9 +42,9 @@ test('unknown routes return a JSON 404', async () => {
 });
 
 test('malformed JSON returns a JSON 400', async () => {
-  const response = await fetch(`${baseUrl}/api/health`, {
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: staffRequestHeaders(origin),
     body: '{',
   });
 
@@ -54,9 +55,9 @@ test('malformed JSON returns a JSON 400', async () => {
 });
 
 test('oversized JSON returns a JSON 413', async () => {
-  const response = await fetch(`${baseUrl}/api/health`, {
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: staffRequestHeaders(origin),
     body: JSON.stringify({ value: 'x'.repeat(110_000) }),
   });
 
@@ -72,6 +73,7 @@ test('CORS allows the configured origin', async () => {
   });
 
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
+  assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
   await response.arrayBuffer();
 });
 
@@ -97,7 +99,7 @@ test('CORS handles preflight for the configured origin', async () => {
   assert.equal(response.status, 204);
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
   assert.match(response.headers.get('access-control-allow-methods') ?? '', /GET/);
-  assert.equal(response.headers.get('access-control-allow-headers'), 'Content-Type');
+  assert.equal(response.headers.get('access-control-allow-headers'), 'Content-Type,X-Library-Request');
 });
 
 test('unexpected errors return a JSON 500 without internal details', async (t) => {

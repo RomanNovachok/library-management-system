@@ -55,7 +55,7 @@ test('business conflicts and all required HTTP errors have actionable Ukrainian 
     ['COPY_WRITE_CONFLICT', 'одночасно'], ['BOOK_ARCHIVED', 'архівовано'],
   ]) assert.ok(apiErrorMessage(409, code).includes(part));
   for (const status of [400, 403, 404, 409, 500]) assert.match(apiErrorMessage(status), /[А-ЯІЇЄа-яіїє]/);
-  assert.ok(apiErrorMessage(403, 'ADMIN_ACCESS_FORBIDDEN').includes('локальної розробки'));
+  assert.ok(apiErrorMessage(403, 'ROLE_FORBIDDEN').includes('роль'));
 });
 
 test('POST response contracts accept books without copies and copies with a server status', () => {

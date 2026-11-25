@@ -1,8 +1,11 @@
 import { Link } from 'react-router';
 import { Icon } from '../components/Icon';
 import { sections } from './sections';
+import { useAuth } from '../auth/useAuth';
 
 export function DashboardPage() {
+  const { state } = useAuth();
+  const admin = state.status === 'authenticated' && state.user.role === 'ADMIN';
   return <>
     <div className="mb-8">
       <p className="eyebrow">Головна</p>
@@ -23,10 +26,11 @@ export function DashboardPage() {
     <section aria-labelledby="sections-title">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-2"><h2 id="sections-title" className="text-lg font-semibold tracking-tight text-ink">Розділи системи</h2><p className="text-xs text-muted">Швидкий перехід до робочих розділів</p></div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {sections.filter((section) => section.path !== '/dashboard').map((section) => (
+        {sections.filter((section) => section.path !== '/dashboard' && (admin || section.path !== '/administration')).map((section) => (
           <Link key={section.path} to={section.path} className="group rounded-2xl border border-line bg-white p-6 transition-colors hover:border-pine/35 hover:bg-[#fcfdfb]">
             <div className="mb-6 flex items-center justify-between"><span className="flex size-11 items-center justify-center rounded-xl bg-sage text-pine"><Icon name={section.icon} className="size-6" /></span><Icon name="arrow" className="size-4 text-muted transition-transform group-hover:translate-x-1 motion-reduce:transform-none" /></div>
-            <h3 className="text-base font-semibold text-ink">{section.title}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-muted">{section.description}</p><span className="mt-5 inline-flex rounded-md bg-surface px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted">{section.path === '/readers' ? 'Доступно локально' : 'Заплановано'}</span>
+            <h3 className="text-base font-semibold text-ink">{section.title}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-muted">{section.description}</p>
+            {['/rentals', '/reports'].includes(section.path) && <span className="mt-5 inline-flex rounded-md bg-surface px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted">Заплановано</span>}
           </Link>
         ))}
         <div className="flex flex-col justify-center rounded-2xl border border-dashed border-[#d4dfd7] px-6 py-7">
