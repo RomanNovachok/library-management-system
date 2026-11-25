@@ -22,6 +22,7 @@ rectangle "Library Management System" {
   usecase "Провести остаточний\nрозрахунок із заставою" as Settle
   usecase "Переглянути прокати\nй прострочення" as Rentals
   usecase "Сформувати звіти" as Reports
+  usecase "Переглянути поточні показники\nі останню активність" as Dashboard
   usecase "Керувати книгами\nі примірниками" as ManageBooks
   usecase "Оновити стан\nпісля ремонту" as Repair
   usecase "Керувати категоріями\nчитачів і знижками" as ManageCategories
@@ -37,6 +38,7 @@ Librarian --> Issue
 Librarian --> Close
 Librarian --> Rentals
 Librarian --> Reports
+Librarian --> Dashboard
 Admin --> ManageBooks
 Admin --> Repair
 Admin --> ManageCategories

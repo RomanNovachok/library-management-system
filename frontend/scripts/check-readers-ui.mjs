@@ -9,6 +9,7 @@ import path from 'node:path';
 import { createServer } from 'vite';
 import { register } from '../../backend/node_modules/tsx/dist/esm/api/index.mjs';
 import { rentalFixture } from './rentals-ui-fixture.mjs';
+import { checkReportsUI, reportsFixture } from './reports-ui-checks.mjs';
 
 register();
 const { createApp } = await import('../../backend/src/app.ts');
@@ -17,6 +18,8 @@ const { MemoryAuthRepository } = await import('../../backend/test/helpers/auth.r
 const { MemoryBooksRepository, bookId } = await import('../../backend/test/helpers/books.repository.ts');
 const { MemoryBookCopiesRepository } = await import('../../backend/test/helpers/book-copies.repository.ts');
 const { hashPassword } = await import('../../backend/src/modules/auth/passwords.ts');
+const { Prisma } = await import('../../backend/src/generated/prisma/client.ts');
+const { emptyReportsData, memoryReportsRepository } = await import('../../backend/test/helpers/reports.repository.ts');
 const chrome = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].find((candidate) => candidate && existsSync(candidate));
 assert.ok(chrome, 'Set CHROME_PATH to an installed Chrome/Chromium executable to run browser checks');
 const repository = new MemoryReadersRepository();
@@ -31,16 +34,19 @@ copies.books.set(bookId, { id: bookId, archivedAt: null });
 for (const copy of books.copies) copies.copies.set(copy.id, copy);
 books.copies[0].condition = 'UNKNOWN';
 const rentals = rentalFixture({ books, readers: repository, staff: librarian });
+const reports = reportsFixture({ empty: emptyReportsData, decimal: (value) => new Prisma.Decimal(value), books });
 for (let i = 0; i < 12; i++) await repository.create({ ...validReaderInput, fullName: `Тестовий Читач ${String(i).padStart(2, '0')}`, categoryId: i % 2 ? otherCategoryId : categoryId });
 const requests = [];
 let fault;
 let delay = 0;
 let meDelay = 0;
+let reportsDelay = 0;
 let app;
 let origin;
 const server = httpServer(async (req, res) => {
   requests.push({ method: req.method, url: req.url });
   if (req.url === '/api/auth/me' && meDelay) await new Promise((resolve) => setTimeout(resolve, meDelay));
+  if (reportsDelay && /^\/api\/(reports\/|dashboard)/.test(req.url)) await new Promise((resolve) => setTimeout(resolve, reportsDelay));
   if (req.method !== 'OPTIONS' && delay && ['POST', 'PATCH'].includes(req.method)) await new Promise((resolve) => setTimeout(resolve, delay));
   if (req.method !== 'OPTIONS' && fault?.match(req)) {
     if (fault.partial) {
@@ -72,6 +78,7 @@ try {
   origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
   app = createApp({ CORS_ORIGIN: origin, NODE_ENV: 'development' }, {
     readersRepository: repository, authRepository: auth, booksRepository: books, bookCopiesRepository: copies,
+    reportsRepository: memoryReportsRepository(reports.data),
   });
   const cache = path.resolve('node_modules/.cache');
   await mkdir(cache, { recursive: true });
@@ -192,6 +199,8 @@ try {
   await fill('dialog', { password: resetPassword });
   await click('Зберегти зміни', 'dialog'); await closed();
 
+  await navigate('/dashboard');
+  await waitFor(`!!document.querySelector('main a[href="/administration"]')`);
   await click('Вийти', 'header'); await loginReady();
   assert.equal(auth.sessions.size, 0);
   await navigate('/books'); await loginAs(librarian.email);
@@ -204,6 +213,7 @@ try {
   await navigate('/administration');
   await waitFor(`location.pathname === '/dashboard'`);
   assert.equal(await evaluate(`document.querySelector('[href="/administration"]')`), null);
+  await waitFor(`document.querySelector('main')?.textContent.includes('Видач ще немає.')`);
   await auth.deleteAccountSessions(librarian.id);
   await evaluate(`document.querySelector('nav [href="/readers"]').click()`);
   await loginReady();
@@ -387,8 +397,17 @@ try {
   assert.equal(closeCount(), 3);
   await waitFor(`document.querySelector('main')?.textContent.includes('Втрату книги оформлено') && document.querySelector('main')?.textContent.includes('Отримання доплати')`);
   assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
-  assert.deepEqual(runtimeErrors, []);
   console.info('PASS Rentals combobox, physical condition, history navigation, breadcrumbs, confirmation, conflicts, stale preview, unknown outcome, LOST and mobile layout');
+  await checkReportsUI({
+    call, evaluate, waitFor, navigate, click, setFault: (value) => { fault = value; },
+    setDelay: (value) => { reportsDelay = value; }, showRental: reports.showRental, requests,
+    rental: {
+      id: rentalRoute.split('/')[2].split('?')[0], status: 'LOST', issuedAt: new Date(), dueAt: new Date(), closedAt: new Date(),
+      reader: { id: readerRoute.split('/')[2], fullName: 'Тестовий Читач 11' },
+      copy: { inventoryCode: 'TEST-0', book: { id: bookId, title: 'Alpha' } },
+    },
+  });
+  assert.deepEqual(runtimeErrors, []);
 } finally {
   clearTimeout(deadline);
   socket?.close();

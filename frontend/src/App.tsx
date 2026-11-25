@@ -6,8 +6,7 @@ import { BookDetailsPage } from './pages/BookDetailsPage';
 import { ReadersPage } from './pages/ReadersPage';
 import { ReaderDetailsPage } from './pages/ReaderDetailsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { SectionPage } from './pages/SectionPage';
-import { sections } from './pages/sections';
+import { ReportsPage } from './pages/ReportsPage';
 import { AuthProvider } from './auth/AuthProvider';
 import { useAuth } from './auth/useAuth';
 import { LoginPage } from './pages/LoginPage';
@@ -40,7 +39,7 @@ export function App() {
         <Route path="rentals" element={<RentalsPage />} />
         <Route path="rentals/:id" element={<RentalDetailsPage />} />
         <Route path="administration" element={<AdminRoute />} />
-        {sections.filter((section) => !['/dashboard', '/books', '/readers', '/rentals', '/administration'].includes(section.path)).map((section) => <Route key={section.path} path={section.path} element={<SectionPage section={section} />} />)}
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Route>

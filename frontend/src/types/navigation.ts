@@ -5,5 +5,4 @@ export interface SectionDefinition {
   title: string;
   icon: IconName;
   description: string;
-  plannedFeatures: readonly string[];
 }

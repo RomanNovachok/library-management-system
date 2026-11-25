@@ -92,6 +92,16 @@ Frontend: `ReadersPage`, `ReaderDetailsPage`, `ReaderForm`, `api/readers.ts`, `r
 
 Міграція `track_copy_condition` додає enum і обмеження сумісності доступності, стану й описів. Старі примірники отримують `UNKNOWN`, а записи з підтвердженим статусом втрати — `LOST`. Попередні знімки прокатів залишаються `NULL`. Міграцію перевіряє `db:migrate-condition-check` зі знімками старих полів до і після.
 
+## Модуль Reports і Dashboard
+
+`createReportsRouter` підключає три звіти й Dashboard після перевірки серверної сесії. `ReportsController` валідує query строгими Zod-схемами, а RBAC дозволяє ADMIN і LIBRARIAN. `ReportService` фіксує час з ін’єктованого джерела, визначає межі періоду й делегує звіти відповідному `ReportCreator` із типізованого реєстру.
+
+Кожен творець у `createReport()` створює конкретний генератор. Спільна операція творця `generate(params)` викликає успадкований `BaseReport.generate`, який послідовно запускає асинхронний `fetchData`, `aggregate` та `format`. Генератори використовують контракт `ReportsRepository`, підмінний через `createApp`. Dashboard проходить через той самий сервіс і repository та використовує спільні запити нарахувань і застав і спільну Decimal-агрегацію.
+
+`PrismaReportsRepository` відкриває одну транзакцію `RepeatableRead READ ONLY` на звіт. `PrismaReportsData` виконує Prisma `count`, `groupBy`, `aggregate` і вибірки з обмеженням розміру. Таблиці мають стабільний порядок із прив’язкою до ID. Книжковий фонд групує жанри в PostgreSQL по всій вибірці за пошуком і архівністю та окремо рахує `AVAILABLE` у неархівованих виданнях. Для графіка фінансів параметризований PostgreSQL-запит групує нарахування й касу за локальним календарем. Схеми звітів зводять обидва написання київської часової зони до `Europe/Kyiv` після нормалізації `Intl`, яка може повернути `Europe/Kiev`. Агрегати повертаються у Prisma Decimal і серіалізуються рядками з двома десятковими знаками. Читання використовує чинну схему PostgreSQL.
+
+`ReportsPage` зберігає вкладку, період, фільтри та пагінацію в URL, а `useApiResource` скасовує запити після зміни фільтра чи вкладки. Передавання локальних календарних дат як UTC-меж зберігає повний кінцевий день. Фінансові таблиці мають незалежні сторінки. Dashboard перечитує статистику при вході на сторінку та за кнопкою оновлення. Контекстна навігація зберігає шлях і параметри звіту або головної при переході до деталей книги, читача чи прокату.
+
 ## GoF-патерни
 
 **Strategy.** `RentalCalculator` делегує коригування базової вартості інтерфейсу `DiscountStrategy.apply`. `RentalsService` підставляє `NoDiscountStrategy` для нульової знижки та `PercentageDiscountStrategy` з `discountPercentSnapshot` для відсоткової. Одна параметризована стратегія обслуговує всі відсоткові категорії.
@@ -100,9 +110,9 @@ Frontend: `ReadersPage`, `ReaderDetailsPage`, `ReaderForm`, `api/readers.ts`, `r
 
 **Гарантія й обмеження аудиту.** Подію публікуємо після успішної транзакції. Помилка запису в `AuditLog` не змінює успішний результат операції. Журнал працює за принципом best-effort. Зупинка процесу між комітом і аудитом або збій підписника можуть залишити прогалину. Гарантована доставка потребує транзакційного аудиту або outbox.
 
-**Template Method.** Абстрактний `BaseReport` реалізує фінальний алгоритм `generate(params)` (отримати дані → агрегувати → сформувати результат); конкретні `InventoryReport`, `RentalsReport`, `FinancialReport` реалізують кроки.
+**Template Method.** `InventoryReport`, `RentalsReport` та `FinancialReport` реалізують кроки шаблону `BaseReport.generate` зі своїми вхідними даними, агрегацією та форматом.
 
-**Factory Method.** Абстрактний `ReportCreator` оголошує фабричний метод `createReport()`, який у `InventoryReportCreator`, `RentalsReportCreator`, `FinancialReportCreator` створює конкретні генератори. Це саме GoF Factory Method, не проста функція з `switch`.
+**Factory Method.** `InventoryReportCreator`, `RentalsReportCreator` та `FinancialReportCreator` перевизначають `ReportCreator.createReport`. Спільна операція базового творця запускає створений звіт.
 
 ## SOLID / GRASP
 

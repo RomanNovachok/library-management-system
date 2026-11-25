@@ -43,12 +43,17 @@ package "Domain" #F5F5F5 {
   class Rental {
     +issuedAt: DateTime
     +dueAt: DateTime
+    +closedAt: DateTime?
     +status: RentalStatus
     +pricePerDaySnapshot: Decimal
     +depositSnapshot: Decimal
     +discountPercentSnapshot: Decimal
     +readerCategorySnapshot: string
     +damagePercentSnapshot: Decimal?
+    +rentalFee: Decimal?
+    +damageFine: Decimal?
+    +refundAmount: Decimal?
+    +additionalPayment: Decimal?
     +conditionAtIssue: CopyCondition?
     +conditionNotesAtIssue: string?
     +conditionAtReturn: CopyCondition?
@@ -64,6 +69,7 @@ package "Domain" #F5F5F5 {
   class CashMovement {
     +type: CashMovementType
     +amount: Decimal
+    +createdAt: DateTime
   }
   class AuditLog {
     +id: UUID
@@ -92,6 +98,7 @@ package "Domain" #F5F5F5 {
   BookCopy "1" -- "*" Rental
   DamageRule "0..1" -- "*" Rental : rule at closure
   Rental "1" -- "*" CashMovement
+  StaffUser "1" -- "*" CashMovement : records
   StaffUser "1" -- "*" AuditLog : performs
   StaffUser "1" -- "*" StaffSession : authenticates
 }
@@ -316,12 +323,12 @@ package "Observer — події" #E3EAFE {
   AuditLogSubscriber ..> AuditLog : writes
 }
 
-package "Template Method — заплановані звіти" #FFF1D6 {
-  abstract class BaseReport <<Template Method>> {
-    +generate(params): ReportResult
-    #loadData(params): any
-    #aggregate(data): any
-    #format(data): ReportResult
+package "Template Method — генератори звітів" #FFF1D6 {
+  abstract class "BaseReport<Params, Data, Aggregated, Result>" as BaseReport <<Template Method>> {
+    +generate(params): Promise<Result>
+    #fetchData(params): Promise<Data>
+    #aggregate(data): Aggregated
+    #format(data): Result
   }
   class InventoryReport
   class RentalsReport
@@ -331,9 +338,10 @@ package "Template Method — заплановані звіти" #FFF1D6 {
   BaseReport <|-- FinancialReport
 }
 
-package "Factory Method — запланований модуль звітів" #FBE3E9 {
-  abstract class ReportCreator <<Creator>> {
-    +createReport(): BaseReport
+package "Factory Method — творці звітів" #FBE3E9 {
+  abstract class "ReportCreator<Params, Result>" as ReportCreator <<Creator>> {
+    +createReport(): Product
+    +generate(params): Promise<Result>
   }
   class InventoryReportCreator <<ConcreteCreator>>
   class RentalsReportCreator <<ConcreteCreator>>
@@ -344,7 +352,47 @@ package "Factory Method — запланований модуль звітів" 
   InventoryReportCreator ..> InventoryReport : creates
   RentalsReportCreator ..> RentalsReport : creates
   FinancialReportCreator ..> FinancialReport : creates
-  ReportCreator ..> BaseReport : returns
+  ReportCreator ..> BaseReport : generates through the product contract
+}
+
+package "Reports — читання статистики" #E9F3EB {
+  class ReportsController {
+    +inventory(req, res)
+    +rentals(req, res)
+    +financial(req, res)
+    +dashboard(req, res)
+  }
+  class ReportService {
+    +inventory(query)
+    +rentals(query)
+    +financial(query)
+    +dashboard(query)
+  }
+  interface ReportsRepository {
+    +read(operation)
+  }
+  class PrismaReportsRepository
+  class PrismaReportsData {
+    +inventory(query)
+    +rentals(query, period, now)
+    +financial(query, period)
+    +dashboard(period, now)
+  }
+  ReportsController --> ReportService
+  ReportService --> "3" ReportCreator : typed registry
+  ReportService --> ReportsRepository : dashboard
+  ReportCreator --> ReportsRepository : injects into products
+  InventoryReport --> ReportsRepository
+  RentalsReport --> ReportsRepository
+  FinancialReport --> ReportsRepository
+  ReportsRepository <|.. PrismaReportsRepository
+  PrismaReportsRepository ..> PrismaReportsData : read-only snapshot
+  PrismaReportsData ..> Book : reads
+  PrismaReportsData ..> BookCopy : reads
+  PrismaReportsData ..> Reader : reads
+  PrismaReportsData ..> Rental : reads
+  PrismaReportsData ..> CashMovement : reads
+  PrismaReportsData ..> StaffUser : reads
 }
 
 package "Rentals — видача і повернення" {
@@ -383,14 +431,10 @@ package "Rentals — видача і повернення" {
   PrismaRentalsRepository ..> DamageRule : reads
   PrismaRentalsRepository ..> CashMovement : records
 }
-class ReportService {
-  +getReport(type, params): ReportResult
-}
 RentalsService ..> RentalCalculator : shares between preview and close
 RentalsService ..> NoDiscountStrategy : selects
 RentalsService ..> PercentageDiscountStrategy : selects with snapshot
 RentalsService --> RentalEventPublisher : publishes after commit
-ReportService --> ReportCreator : uses
 note right of RentalsService
   Операції видачі / повернення
   виконуються транзакційно.

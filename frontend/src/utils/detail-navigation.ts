@@ -8,6 +8,10 @@ const detailSections = {
 };
 type DetailSection = keyof typeof detailSections;
 type DetailLocation = { pathname: string; search: string };
+const reportOrigins = new Map([
+  ['/reports', 'Повернутися до звітів'],
+  ['/dashboard', 'Повернутися на головну'],
+]);
 
 export function detailSection(pathname: string) {
   return (Object.keys(detailSections) as DetailSection[]).find((section) => matchPath(`${section}/:id`, pathname));
@@ -20,9 +24,11 @@ export function detailTitle(pathname: string) {
 
 function safeLocation(value: unknown): value is DetailLocation {
   if (!record(value) || typeof value.pathname !== 'string' || typeof value.search !== 'string') return false;
+  if (value.search !== '' && !value.search.startsWith('?')) return false;
+  if (reportOrigins.has(value.pathname)) return true;
   const section = detailSection(value.pathname);
   const id = section && matchPath(`${section}/:id`, value.pathname)?.params.id;
-  return uuid(id) && value.pathname === `${section}/${id}` && (value.search === '' || value.search.startsWith('?'));
+  return uuid(id) && value.pathname === `${section}/${id}`;
 }
 
 function samePage(a: string, b: string) {
@@ -53,5 +59,6 @@ export function detailBack(current: DetailLocation & { state: unknown }, fallbac
   const trail = previousPages(current.state, current.pathname);
   const to = trail.pop();
   if (!to) return { to: fallback, label, state: undefined };
-  return { to, label: detailSections[detailSection(to.pathname)!].back, state: { detailTrail: trail } };
+  const section = detailSection(to.pathname);
+  return { to, label: section ? detailSections[section].back : reportOrigins.get(to.pathname)!, state: { detailTrail: trail } };
 }
