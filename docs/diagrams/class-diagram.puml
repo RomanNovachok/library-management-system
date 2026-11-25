@@ -18,6 +18,15 @@ package "Domain" #F5F5F5 {
     +bookId: UUID
     +inventoryCode: string
     +status: CopyStatus
+    +condition: CopyCondition
+    +conditionNotes: string?
+  }
+  enum CopyCondition {
+    GOOD
+    MINOR_DAMAGE
+    MAJOR_DAMAGE
+    LOST
+    UNKNOWN
   }
   class Reader {
     +id: UUID
@@ -40,6 +49,17 @@ package "Domain" #F5F5F5 {
     +discountPercentSnapshot: Decimal
     +readerCategorySnapshot: string
     +damagePercentSnapshot: Decimal?
+    +conditionAtIssue: CopyCondition?
+    +conditionNotesAtIssue: string?
+    +conditionAtReturn: CopyCondition?
+    +conditionNotesAtReturn: string?
+    +newDamageNotes: string?
+  }
+  class DamageRule {
+    +code: string
+    +label: string
+    +penaltyPercent: Decimal
+    +outcome: DamageOutcome
   }
   class CashMovement {
     +type: CashMovementType
@@ -70,6 +90,7 @@ package "Domain" #F5F5F5 {
   ReaderCategory "1" -- "*" Reader
   Reader "1" -- "*" Rental
   BookCopy "1" -- "*" Rental
+  DamageRule "0..1" -- "*" Rental : rule at closure
   Rental "1" -- "*" CashMovement
   StaffUser "1" -- "*" AuditLog : performs
   StaffUser "1" -- "*" StaffSession : authenticates
@@ -179,7 +200,7 @@ package "book-copies — реалізований backend" #E3EAFE {
     +lockBook(bookId): CopyBook?
     +lockCopy(bookId, copyId): BookCopy?
     +hasRentals(copyId, activeOnly): boolean
-    +create(bookId, inventoryCode): BookCopy
+    +create(input: NewBookCopy): BookCopy
     +update(copy, input): BookCopy
     +delete(copy): void
   }
@@ -242,7 +263,7 @@ package "readers — реалізований backend" #E3EAFE {
     Категорії з БД, поточна знижка Decimal.
     PATCH лише переданих полів Reader.
     Історичні знімки Rental незмінні.
-    DELETE та видача/повернення відсутні.
+    Історія показує прокати з модуля Rentals.
   end note
 }
 
@@ -254,27 +275,48 @@ package "Strategy — знижки" #DFF1E5 {
   class PercentageDiscountStrategy <<ConcreteStrategy>> {
     -percent: Decimal
   }
+  class RentalCalculator <<Context>> {
+    -discount: DiscountStrategy
+    +calculate(rental, rule, closedAt): Settlement
+  }
   DiscountStrategy <|.. NoDiscountStrategy
   DiscountStrategy <|.. PercentageDiscountStrategy
+  RentalCalculator --> DiscountStrategy : delegates
 }
 
 package "Observer — події" #E3EAFE {
   interface RentalEventSubscriber <<Observer>> {
-    +handle(event: RentalEvent): void
+    +onRentalEvent(event: RentalEvent): Promise<void>
   }
   class RentalEventPublisher <<Subject>> {
-    +subscribe(observer): void
-    +publish(event): void
+    +subscribe(subscriber): Unsubscribe
+    +publish(event: RentalEvent): Promise<void>
   }
   class AuditLogSubscriber <<ConcreteObserver>>
-  class RentalEvent <<Event>>
+  interface RentalEvent <<union>> {
+    rentalId: UUID
+    actorId: UUID
+    occurredAt: Date
+  }
+  interface RentalIssued <<Event>>
+  interface RentalClosed <<Event>> {
+    status: RentalStatus
+    copyStatus: DamageOutcome
+    damageRuleId: UUID
+    conditionAtIssue: CopyCondition?
+    condition: CopyCondition
+    ruleCode: string
+    damagePercent: string
+  }
+  RentalEvent ..> RentalIssued : union member
+  RentalEvent ..> RentalClosed : union member
   RentalEventSubscriber <|.. AuditLogSubscriber
   RentalEventPublisher o-- RentalEventSubscriber
   RentalEventPublisher ..> RentalEvent
   AuditLogSubscriber ..> AuditLog : writes
 }
 
-package "Template Method — звіти" #FFF1D6 {
+package "Template Method — заплановані звіти" #FFF1D6 {
   abstract class BaseReport <<Template Method>> {
     +generate(params): ReportResult
     #loadData(params): any
@@ -289,7 +331,7 @@ package "Template Method — звіти" #FFF1D6 {
   BaseReport <|-- FinancialReport
 }
 
-package "Factory Method — створення звітів" #FBE3E9 {
+package "Factory Method — запланований модуль звітів" #FBE3E9 {
   abstract class ReportCreator <<Creator>> {
     +createReport(): BaseReport
   }
@@ -305,20 +347,55 @@ package "Factory Method — створення звітів" #FBE3E9 {
   ReportCreator ..> BaseReport : returns
 }
 
-class RentalService {
-  +issueBook(input): Rental
-  +closeRental(input): Settlement
+package "Rentals — видача і повернення" {
+  class RentalsController {
+    +list()
+    +details()
+    +damageRules()
+    +issue()
+    +preview()
+    +close()
+  }
+  class RentalsService {
+    +list(query): RentalPage
+    +details(id): RentalDetails
+    +damageRules(): DamageRule[]
+    +issue(input, actorId, termsVersion?): RentalDetails
+    +preview(id, input): ReturnPreview
+    +close(id, input, actorId): RentalDetails
+  }
+  interface RentalsRepository {
+    +read(operation)
+    +transaction(operation)
+    +damageRules(): DamageRule[]
+  }
+  class PrismaRentalsRepository
+  class "rental-condition.ts" as RentalCondition <<module>> {
+    +conditionForIssue(copy, inspection): CopyConditionData
+    +conditionForReturn(rental, input): ReturnCondition
+  }
+  RentalsController --> RentalsService
+  RentalsService ..> RentalCondition
+  RentalsService --> RentalsRepository
+  RentalsRepository <|.. PrismaRentalsRepository
+  PrismaRentalsRepository ..> Rental : reads and writes
+  PrismaRentalsRepository ..> BookCopy : locks and updates
+  PrismaRentalsRepository ..> DamageRule : reads
+  PrismaRentalsRepository ..> CashMovement : records
 }
 class ReportService {
   +getReport(type, params): ReportResult
 }
-RentalService ..> DiscountStrategy : uses
-RentalService --> RentalEventPublisher : publishes
-RentalService ..> Rental : manages
+RentalsService ..> RentalCalculator : shares between preview and close
+RentalsService ..> NoDiscountStrategy : selects
+RentalsService ..> PercentageDiscountStrategy : selects with snapshot
+RentalsService --> RentalEventPublisher : publishes after commit
 ReportService --> ReportCreator : uses
-note right of RentalService
+note right of RentalsService
   Операції видачі / повернення
   виконуються транзакційно.
   Ціна, знижка, застава — snapshots.
+  Штраф і доступність визначаються
+  тяжкістю нових пошкоджень і загальним станом відповідно.
 end note
 @enduml

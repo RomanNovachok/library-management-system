@@ -46,6 +46,8 @@ entity "BookCopy" as BookCopy {
   bookId : UUID <<FK>>
   inventoryCode : string <<UNIQUE>>
   status : AVAILABLE | RENTED | MAINTENANCE | LOST
+  condition : GOOD | MINOR_DAMAGE | MAJOR_DAMAGE | LOST | UNKNOWN
+  conditionNotes : text?
 }
 entity "DamageRule" as DamageRule {
   * id : UUID <<PK>>
@@ -76,6 +78,11 @@ entity "Rental" as Rental {
   refundAmount : Decimal?
   additionalPayment : Decimal?
   damageRuleId : UUID? <<FK>>
+  conditionAtIssue : CopyCondition?
+  conditionNotesAtIssue : text?
+  conditionAtReturn : CopyCondition?
+  conditionNotesAtReturn : text?
+  newDamageNotes : text?
 }
 entity "AuditLog" as AuditLog {
   * id : UUID <<PK>>
@@ -116,8 +123,15 @@ note right of Rental
   One ACTIVE rental per copyId (partial unique index).
   ACTIVE: closing fields are NULL.
   RETURNED/LOST: closedAt, closedById and settlement
-  snapshots/totals are required; damageRuleId is optional.
+  snapshots/totals are required.
+  Legacy rentals may lack condition snapshots or a rule.
+  New returns record a rule and the resulting condition.
   dueAt > issuedAt; closedAt >= issuedAt.
+end note
+note bottom of BookCopy
+  Condition and availability are separate.
+  MAJOR_DAMAGE requires MAINTENANCE.
+  LOST condition and availability are equivalent.
 end note
 note bottom of Book
   Money: numeric(12,2), nonnegative, not NaN.

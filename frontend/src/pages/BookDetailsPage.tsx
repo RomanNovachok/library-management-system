@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { archiveBook, deleteBookCopy, getBook, getBookCopies } from '../api/books';
+import { archiveBook, deleteBookCopy, getBook } from '../api/books';
 import type { BookCopy } from '../api/book-contract';
 import { ApiError } from '../api/client';
 import { ErrorState, LoadingState } from '../components/ApiFeedback';
@@ -12,6 +12,8 @@ import { ConfirmAction } from '../components/forms/ConfirmAction';
 import { useApiResource } from '../hooks/useApiResource';
 import { formatHryvnia } from '../utils/money';
 import { useAuth } from '../auth/useAuth';
+import { conditionLabel } from '../utils/copy-condition';
+import { detailBack, detailLink } from '../utils/detail-navigation';
 
 export function BookDetailsPage() {
   const { id = '' } = useParams();
@@ -23,13 +25,15 @@ type DialogState = { kind: 'editBook' | 'archiveBook' | 'createCopy' } | { kind:
 function BookDetailsContent({ id }: { id: string }) {
   const { state } = useAuth();
   const admin = state.status === 'authenticated' && state.user.role === 'ADMIN';
-  const { search } = useLocation();
+  const location = useLocation();
+  const { search } = location;
+  const back = detailBack(location, { pathname: '/books', search }, 'Повернутися до каталогу');
   const navigate = useNavigate();
   const [dialog, setDialog] = useState<DialogState>();
   const [notice, setNotice] = useState('');
   const load = useCallback(async (signal: AbortSignal) => {
-    const [book, copies] = await Promise.all([getBook(id, signal), getBookCopies(id, signal)]);
-    return { book, copies };
+    const book = await getBook(id, signal);
+    return { book, copies: book.copies };
   }, [id]);
   const { resource, retry } = useApiResource(load);
   function refresh(message = '') {
@@ -41,7 +45,7 @@ function BookDetailsContent({ id }: { id: string }) {
     && (resource.error.status === 404 || (resource.error.status === 400 && resource.error.code === 'VALIDATION_ERROR'));
 
   return <>
-    <Link to={{ pathname: '/books', search }} className="mb-7 inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-medium text-pine hover:underline"><span aria-hidden="true">←</span>Повернутися до каталогу</Link>
+    <Link to={back.to} state={back.state} className="mb-7 inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-medium text-pine hover:underline"><span aria-hidden="true">←</span>{back.label}</Link>
     {notice && <p role="status" className="mb-5 rounded-xl border border-line bg-sage p-4 text-sm text-pine">{notice}</p>}
     {resource.status === 'loading' && <><h1 className="sr-only">Деталі книги</h1><LoadingState message="Завантажуємо книгу та примірники…" /></>}
     {resource.status === 'error' && (notFound ? <div className="rounded-3xl border border-line bg-white px-6 py-16 text-center">
@@ -69,6 +73,7 @@ function BookDetailsContent({ id }: { id: string }) {
         <p className="mt-3 break-words text-base leading-7 text-muted">{resource.data.book.author}</p>
         <p className="mt-4 inline-block max-w-full break-words rounded-lg bg-sage px-3 py-1.5 text-xs font-medium text-pine">{resource.data.book.genre}</p>
         {resource.data.book.archivedAt !== null && <p className="mt-4 text-sm text-amber-900">Архівне видання</p>}
+        <Link to={`/rentals?bookId=${encodeURIComponent(id)}`} className="mt-4 flex w-fit text-sm font-medium text-pine hover:underline">Прокати цієї книги</Link>
         {admin && resource.data.book.archivedAt === null && <div className="mt-5 flex flex-wrap gap-3">
           <button type="button" className="button-secondary" onClick={() => setDialog({ kind: 'editBook' })}>Редагувати</button>
           <button type="button" className="button-danger" onClick={() => setDialog({ kind: 'archiveBook' })}>Архівувати</button>
@@ -89,8 +94,17 @@ function BookDetailsContent({ id }: { id: string }) {
         {resource.data.copies.length === 0 ? <p className="px-6 py-12 text-center text-sm leading-7 text-muted">Для цієї книги ще немає фізичних примірників.</p>
           : <ul className="divide-y divide-line">
             {resource.data.copies.map((copy) => <li key={copy.id} className="flex flex-col items-start justify-between gap-3 px-6 py-5 sm:flex-row sm:items-center sm:px-8">
-              <div className="min-w-0"><p className="mb-1 text-xs text-muted">Інвентарний номер</p><p className="break-words text-sm font-semibold text-ink">{copy.inventoryCode}</p></div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <div className="min-w-0">
+                <p className="mb-1 text-xs text-muted">Інвентарний номер</p><p className="break-words text-sm font-semibold text-ink">{copy.inventoryCode}</p>
+                <dl className="mt-2 text-sm">
+                  <dt className="text-xs text-muted">Фізичний стан</dt>
+                  <dd>{conditionLabel(copy.condition)}</dd>
+                  {copy.conditionNotes && <><dt className="mt-2 text-xs text-muted">Опис пошкоджень</dt>
+                    <dd className="whitespace-pre-wrap wrap-anywhere">{copy.conditionNotes}</dd></>}
+                </dl>
+                {copy.lastClosedRentalId && <Link {...detailLink(location, `/rentals/${copy.lastClosedRentalId}`)} className="mt-2 inline-block text-sm text-pine underline">Останній завершений прокат</Link>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <CopyStatusBadge status={copy.status} />
                 {admin && resource.data.book.archivedAt === null && <>
                   <button type="button" className="button-secondary" aria-label={`Редагувати примірник ${copy.inventoryCode}`} onClick={() => setDialog({ kind: 'editCopy', copy })}>Редагувати</button>

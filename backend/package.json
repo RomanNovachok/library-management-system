@@ -23,6 +23,8 @@
     "db:check-book-copies": "npm run prisma:generate && tsx scripts/check-book-copies.ts",
     "db:check-readers": "npm run prisma:generate && tsx scripts/check-readers.ts",
     "db:check-auth": "npm run prisma:generate && tsx scripts/check-auth.ts",
+    "db:check-rentals": "npm run prisma:generate && tsx scripts/check-rentals.ts",
+    "db:migrate-condition-check": "npm run prisma:generate && tsx scripts/check-condition-migration.ts",
     "auth:bootstrap-admin": "npm run prisma:generate && tsx scripts/bootstrap-admin.ts",
     "db:preflight": "tsx scripts/check-schema.ts --expect-empty",
     "db:check-schema": "tsx scripts/check-schema.ts",

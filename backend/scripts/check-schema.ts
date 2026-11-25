@@ -107,10 +107,21 @@ async function verifySchema() {
   }
   assert.equal(columns.rows.filter((column) => column.udt_name === 'numeric').length, 13);
   assert.equal(columns.rows.find((column) => column.table_name === 'AuditLog' && column.column_name === 'details')?.udt_name, 'jsonb');
+  for (const [table, column, type] of [
+    ['BookCopy', 'condition', 'CopyCondition'], ['BookCopy', 'conditionNotes', 'text'],
+    ['Rental', 'conditionAtIssue', 'CopyCondition'], ['Rental', 'conditionAtReturn', 'CopyCondition'],
+    ['Rental', 'conditionNotesAtIssue', 'text'], ['Rental', 'conditionNotesAtReturn', 'text'], ['Rental', 'newDamageNotes', 'text'],
+  ]) {
+    const found = columns.rows.find(({ table_name, column_name }) => table_name === table && column_name === column);
+    assert.equal(found?.udt_name, type);
+    if (column === 'condition') assert.match(found?.column_default ?? '', /GOOD/);
+    else assert.equal(found?.column_default, null);
+  }
 
   const enums = await client.query<{ name: string; labels: string[] }>("SELECT t.typname AS name, array_agg(e.enumlabel::text ORDER BY e.enumsortorder) AS labels FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public' GROUP BY t.typname");
   assert.deepEqual(Object.fromEntries(enums.rows.map((row) => [row.name, row.labels])), {
     StaffRole: ['ADMIN', 'LIBRARIAN'], CopyStatus: ['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST'],
+    CopyCondition: ['GOOD', 'MINOR_DAMAGE', 'MAJOR_DAMAGE', 'LOST', 'UNKNOWN'],
     DamageOutcome: ['AVAILABLE', 'MAINTENANCE', 'LOST'], RentalStatus: ['ACTIVE', 'RETURNED', 'LOST'],
     CashMovementType: ['DEPOSIT_IN', 'REFUND_OUT', 'TOPUP_IN'],
   });
@@ -119,9 +130,9 @@ async function verifySchema() {
   assert.match(partialIndex.rows[0]?.predicate ?? '', /status.*ACTIVE/);
   assert.match(partialIndex.rows[0]?.definition ?? '', /\("copyId"\)/);
   const checks = await client.query<{ convalidated: boolean }>("SELECT convalidated FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace");
-  assert.equal(checks.rowCount, 16);
+  assert.equal(checks.rowCount, 20);
   assert.ok(checks.rows.every((row) => row.convalidated));
-  console.info('Catalog verified: 10 models, session indexes and foreign key, finance/history constraints and 5 enums.');
+  console.info('Catalog verified: 10 models, session indexes and foreign key, finance and condition constraints and 6 enums.');
 }
 
 async function verifyConstraints() {
@@ -185,6 +196,19 @@ async function verifyConstraints() {
   await expectError(() => update('Rental', 'closedById', closed, null), '23514', 'Rental_closure_check');
   await expectError(() => update('Rental', 'rentalFee', closed, null), '23514', 'Rental_closure_check');
   await expectError(() => update('BookCopy', 'status', copy, 'UNKNOWN'), '22P02');
+  await expectError(() => update('BookCopy', 'status', copy, 'LOST'), '23514', 'BookCopy_condition_status_check');
+  await expectError(() => update('BookCopy', 'condition', copy, 'MINOR_DAMAGE'), '23514', 'BookCopy_condition_notes_check');
+  await expectError(() => client.query(`UPDATE "BookCopy" SET "condition"='MAJOR_DAMAGE', "conditionNotes"='Надрив' WHERE id=$1`, [historyCopy]),
+    '23514', 'BookCopy_condition_status_check');
+  await expectSuccess(() => client.query(`UPDATE "BookCopy" SET "status"='MAINTENANCE', "condition"='MAJOR_DAMAGE', "conditionNotes"='Надрив' WHERE id=$1`, [historyCopy]));
+  await expectSuccess(() => client.query(`UPDATE "BookCopy" SET "status"='LOST', "condition"='LOST' WHERE id=$1`, [historyCopy]));
+  await expectError(() => update('Rental', 'conditionAtIssue', rental, 'UNKNOWN'), '23514', 'Rental_issue_condition_check');
+  await expectError(() => update('Rental', 'conditionAtIssue', rental, 'MINOR_DAMAGE'), '23514', 'Rental_issue_condition_check');
+  await expectSuccess(() => client.query(`UPDATE "Rental" SET "conditionAtIssue"='MINOR_DAMAGE', "conditionNotesAtIssue"='Наявні пошкодження' WHERE id=$1`, [rental]));
+  await expectError(() => update('Rental', 'conditionAtReturn', rental, 'GOOD'), '23514', 'Rental_return_condition_check');
+  await expectError(() => update('Rental', 'conditionAtReturn', closed, 'LOST'), '23514', 'Rental_return_condition_check');
+  await expectError(() => update('Rental', 'newDamageNotes', closed, 'Новий опис'), '23514', 'Rental_return_condition_check');
+  await expectSuccess(() => client.query(`UPDATE "Rental" SET "conditionAtReturn"='GOOD' WHERE id=$1`, [closed]));
 
   const foreignKeys: [Table, string, string][] = [
     ['Reader', 'categoryId', reader], ['BookCopy', 'bookId', copy], ['Rental', 'readerId', rental],

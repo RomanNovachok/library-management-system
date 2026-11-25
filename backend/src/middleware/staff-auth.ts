@@ -24,11 +24,11 @@ export function requireAuth(service: AuthService, cookieName: string): RequestHa
   };
 }
 
-export function requireRole(role: StaffIdentity['role']): RequestHandler {
+export function requireRole(role: StaffIdentity['role'], ...otherRoles: StaffIdentity['role'][]): RequestHandler {
   return (_req, res, next) => {
     const { staff }: StaffLocals = res.locals;
     if (!staff) throw unauthenticated();
-    if (staff.role !== role) throw forbidden();
+    if (staff.role !== role && !otherRoles.includes(staff.role)) throw forbidden();
     next();
   };
 }

@@ -1,4 +1,12 @@
 export type CopyStatus = 'AVAILABLE' | 'RENTED' | 'MAINTENANCE' | 'LOST';
+export const inspectedConditions = ['GOOD', 'MINOR_DAMAGE', 'MAJOR_DAMAGE'] as const;
+export type InspectedCondition = typeof inspectedConditions[number];
+export type CopyCondition = InspectedCondition | 'UNKNOWN' | 'LOST';
+export interface ConditionData { condition: CopyCondition; conditionNotes: string | null }
+export interface CopyInspection { condition: InspectedCondition; conditionNotes?: string | null }
+export const isCopyCondition = (value: unknown): value is CopyCondition =>
+  value === 'LOST' || value === 'UNKNOWN' || inspectedConditions.some((condition) => value === condition);
+export const isConditionNotes = (value: unknown) => value === null || typeof value === 'string' && value.trim().length > 0;
 
 export interface Book {
   id: string;
@@ -10,17 +18,18 @@ export interface Book {
   archivedAt: string | null;
 }
 
-export interface BookCopy {
+export interface BookCopy extends ConditionData {
   id: string;
   bookId: string;
   inventoryCode: string;
   status: CopyStatus;
+  lastClosedRentalId?: string | null;
 }
 
 export type BookInput = Pick<Book, 'title' | 'author' | 'genre' | 'dailyPrice' | 'depositAmount'>;
 export type EditableCopyStatus = Extract<CopyStatus, 'AVAILABLE' | 'MAINTENANCE'>;
-export interface CopyInput { inventoryCode: string }
-export interface CopyUpdateInput extends CopyInput { status?: EditableCopyStatus }
+export interface CopyInput extends Partial<CopyInspection> { inventoryCode: string }
+export interface CopyUpdateInput extends Partial<CopyInput> { status?: EditableCopyStatus }
 
 export interface BookSummary extends Book {
   copyCount: number;
@@ -64,7 +73,9 @@ function book(value: unknown): value is Book {
 
 function copy(value: unknown): value is BookCopy {
   return record(value) && uuid(value.id) && uuid(value.bookId) && text(value.inventoryCode)
-    && typeof value.status === 'string' && ['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST'].includes(value.status);
+    && typeof value.status === 'string' && ['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST'].includes(value.status)
+    && isCopyCondition(value.condition) && isConditionNotes(value.conditionNotes)
+    && (value.lastClosedRentalId === undefined || value.lastClosedRentalId === null || uuid(value.lastClosedRentalId));
 }
 
 export function isBooksResponse(value: unknown): value is BooksResponse {

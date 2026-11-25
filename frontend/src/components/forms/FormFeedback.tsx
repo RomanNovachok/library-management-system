@@ -8,12 +8,12 @@ export function FormFeedback({ error, onRefresh }: { error?: Error; onRefresh: (
   </div>;
 }
 
-export function FormActions({ pending, error, submitLabel, onCancel, danger = false }: {
-  pending: boolean; error?: Error; submitLabel: string; onCancel: () => void; danger?: boolean;
+export function FormActions({ pending, error, submitLabel, onCancel, danger = false, disabled = false }: {
+  pending: boolean; error?: Error; submitLabel: string; onCancel: () => void; danger?: boolean; disabled?: boolean;
 }) {
   const uncertain = error instanceof ApiError && error.outcomeUnknown;
   return <div className="mt-6 flex flex-wrap justify-end gap-3">
     <button type="button" className="button-secondary" disabled={pending} onClick={onCancel}>Скасувати</button>
-    <button type="submit" className={danger ? 'button-danger' : 'button-primary'} disabled={pending || uncertain}>{pending ? 'Зберігаємо…' : submitLabel}</button>
+    <button type="submit" className={danger ? 'button-danger' : 'button-primary'} disabled={pending || uncertain || disabled}>{pending ? 'Зберігаємо…' : submitLabel}</button>
   </div>;
 }

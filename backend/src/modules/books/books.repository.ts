@@ -3,7 +3,7 @@ import type { Book, BookCopy } from '../../generated/prisma/client.js';
 import type { CreateBookInput, ListBooksQuery, UpdateBookInput } from './books.schemas.js';
 
 export type BookSummary = Book & { copyCount: number; availableCopyCount: number };
-export type BookDetails = Book & { copies: BookCopy[] };
+export type BookDetails = Book & { copies: (BookCopy & { lastClosedRentalId?: string | null })[] };
 export type BookWriteResult = 'updated' | 'not_found' | 'archived';
 
 export interface BooksRepository {
@@ -14,7 +14,7 @@ export interface BooksRepository {
   archive(id: string, archivedAt: Date): Promise<BookWriteResult>;
 }
 
-type BooksDatabase = Pick<Prisma.TransactionClient, 'book' | 'bookCopy'>;
+type BooksDatabase = Pick<Prisma.TransactionClient, 'book' | 'bookCopy' | '$queryRaw'>;
 
 function moneyData(input: UpdateBookInput) {
   return {
@@ -80,10 +80,20 @@ export class PrismaBooksRepository implements BooksRepository {
   }
 
   async findById(id: string) {
-    return (await this.db()).book.findUnique({
+    const db = await this.db();
+    const book = await db.book.findUnique({
       where: { id },
       include: { copies: { orderBy: [{ inventoryCode: 'asc' }, { id: 'asc' }] } },
     });
+    if (!book || book.copies.length === 0) return book;
+    const latest = await db.$queryRaw<{ copyId: string; rentalId: string }[]>`
+      SELECT DISTINCT ON (r."copyId") r."copyId", r."id" AS "rentalId"
+      FROM "Rental" r JOIN "BookCopy" c ON c."id" = r."copyId"
+      WHERE c."bookId" = ${id}::uuid AND r."closedAt" IS NOT NULL
+      ORDER BY r."copyId", r."closedAt" DESC, r."id" DESC
+    `;
+    const rentalIds = new Map(latest.map(({ copyId, rentalId }) => [copyId, rentalId]));
+    return { ...book, copies: book.copies.map((copy) => ({ ...copy, lastClosedRentalId: rentalIds.get(copy.id) ?? null })) };
   }
 
   async create(input: CreateBookInput) {

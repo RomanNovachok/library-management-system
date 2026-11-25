@@ -13,7 +13,10 @@ import { PrismaBookCopiesRepository } from '../src/modules/book-copies/book-copi
 import { BookCopiesService } from '../src/modules/book-copies/book-copies.service.js';
 import { MemoryBookCopiesRepository, copiesBookId, copiesArchivedBookId, otherBookId, absentId } from './helpers/book-copies.repository.js';
 
-const copyJson = z.strictObject({ id: z.uuid(), bookId: z.uuid(), inventoryCode: z.string(), status: z.enum(['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST']) });
+const copyJson = z.strictObject({
+  id: z.uuid(), bookId: z.uuid(), inventoryCode: z.string(), status: z.enum(['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST']),
+  condition: z.enum(['GOOD', 'MINOR_DAMAGE', 'MAJOR_DAMAGE', 'LOST', 'UNKNOWN']), conditionNotes: z.string().nullable(),
+});
 const readCopy = async (response: Response) => z.object({ data: copyJson }).parse(await response.json()).data;
 const readList = async (response: Response) => z.object({ data: z.array(copyJson) }).parse(await response.json()).data;
 const readError = async (response: Response) => z.object({ error: z.object({ code: z.string(), message: z.string() }) }).parse(await response.json()).error;

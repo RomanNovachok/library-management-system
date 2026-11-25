@@ -2,6 +2,7 @@ import type { BookCopy } from '../../generated/prisma/client.js';
 import { ApiError } from '../../lib/api-error.js';
 import type { BookCopiesRepository, BookCopiesWriteRepository, CopyBook } from './book-copies.repository.js';
 import type { CreateBookCopyInput, ListBookCopiesQuery, UpdateBookCopyInput } from './book-copies.schemas.js';
+import { assertCopyCondition } from './copy-condition.js';
 
 export class BookCopiesService {
   constructor(private readonly repository: BookCopiesRepository) {}
@@ -19,19 +20,29 @@ export class BookCopiesService {
   async create(bookId: string, input: CreateBookCopyInput) {
     return this.repository.transaction(async (tx) => {
       this.requireWritableBook(this.requireBook(await tx.lockBook(bookId)));
-      return tx.create(bookId, input.inventoryCode);
+      const condition = input.condition ?? 'GOOD';
+      const conditionNotes = input.conditionNotes ?? null;
+      const status = condition === 'MAJOR_DAMAGE' ? 'MAINTENANCE' : 'AVAILABLE';
+      assertCopyCondition({ condition, conditionNotes }, status);
+      return tx.create({ bookId, inventoryCode: input.inventoryCode, condition, conditionNotes, status });
     });
   }
 
   async update(bookId: string, copyId: string, input: UpdateBookCopyInput) {
     return this.writeCopy(bookId, copyId, async (tx, copy) => {
-      if (input.status !== undefined) {
-        if (!['AVAILABLE', 'MAINTENANCE'].includes(input.status) || !['AVAILABLE', 'MAINTENANCE'].includes(copy.status)) {
+      const changesCondition = input.condition !== undefined || input.conditionNotes !== undefined;
+      if (input.status !== undefined || changesCondition) {
+        const status = input.status ?? copy.status;
+        if (!['AVAILABLE', 'MAINTENANCE'].includes(status) || !['AVAILABLE', 'MAINTENANCE'].includes(copy.status)) {
           throw new ApiError(409, 'COPY_STATUS_CONFLICT', 'Only AVAILABLE and MAINTENANCE statuses can be managed here');
         }
         if (await tx.hasRentals(copy.id, true)) {
-          throw new ApiError(409, 'COPY_ACTIVE_RENTAL', 'A copy with an active rental cannot change status');
+          throw new ApiError(409, 'COPY_ACTIVE_RENTAL', 'A copy with an active rental cannot change status or condition');
         }
+        assertCopyCondition({
+          condition: input.condition ?? copy.condition,
+          conditionNotes: input.conditionNotes === undefined ? copy.conditionNotes : input.conditionNotes,
+        }, status);
       }
       return tx.update(copy, input);
     });

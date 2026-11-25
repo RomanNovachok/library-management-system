@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { inspectionSchema } from './copy-condition.js';
 
 const uuid = z.uuid().transform((value) => value.toLowerCase());
 const inventoryCode = z.string().trim().min(1).max(100)
@@ -8,9 +9,8 @@ export const bookCopiesParamsSchema = z.strictObject({ bookId: uuid });
 export const bookCopyParamsSchema = bookCopiesParamsSchema.extend({ copyId: uuid });
 export const listBookCopiesSchema = z.strictObject({ status: copyStatusSchema.optional() });
 export const emptyCopyQuerySchema = z.strictObject({});
-export const createBookCopySchema = z.strictObject({ inventoryCode });
-export const updateBookCopySchema = z.strictObject({
-  inventoryCode: inventoryCode.optional(),
+export const createBookCopySchema = inspectionSchema.extend({ inventoryCode }).partial({ condition: true });
+export const updateBookCopySchema = createBookCopySchema.partial().extend({
   status: copyStatusSchema.optional(),
 }).refine((value) => Object.values(value).some((field) => field !== undefined), 'At least one editable field is required');
 

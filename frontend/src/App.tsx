@@ -12,6 +12,8 @@ import { AuthProvider } from './auth/AuthProvider';
 import { useAuth } from './auth/useAuth';
 import { LoginPage } from './pages/LoginPage';
 import { AdministrationPage } from './pages/AdministrationPage';
+import { RentalsPage } from './pages/RentalsPage';
+import { RentalDetailsPage } from './pages/RentalDetailsPage';
 
 function ProtectedRoute() {
   const { state } = useAuth();
@@ -35,8 +37,10 @@ export function App() {
         <Route path="books/:id" element={<BookDetailsPage />} />
         <Route path="readers" element={<ReadersPage />} />
         <Route path="readers/:id" element={<ReaderDetailsPage />} />
+        <Route path="rentals" element={<RentalsPage />} />
+        <Route path="rentals/:id" element={<RentalDetailsPage />} />
         <Route path="administration" element={<AdminRoute />} />
-        {sections.filter((section) => !['/dashboard', '/books', '/readers', '/administration'].includes(section.path)).map((section) => <Route key={section.path} path={section.path} element={<SectionPage section={section} />} />)}
+        {sections.filter((section) => !['/dashboard', '/books', '/readers', '/rentals', '/administration'].includes(section.path)).map((section) => <Route key={section.path} path={section.path} element={<SectionPage section={section} />} />)}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Route>

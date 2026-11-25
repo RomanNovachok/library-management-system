@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BookCopy, CopyStatus } from '../../src/generated/prisma/client.js';
 import { ApiError } from '../../src/lib/api-error.js';
 import { copyWriteConflict } from '../../src/modules/book-copies/book-copies.repository.js';
-import type { BookCopiesRepository, BookCopiesWriteRepository, CopyBook } from '../../src/modules/book-copies/book-copies.repository.js';
+import type { BookCopiesRepository, BookCopiesWriteRepository, CopyBook, NewBookCopy } from '../../src/modules/book-copies/book-copies.repository.js';
 import type { UpdateBookCopyInput } from '../../src/modules/book-copies/book-copies.schemas.js';
 
 export const copiesBookId = '1ffb34cd-3170-4732-a79a-c5d8428ea1d1';
@@ -25,7 +25,7 @@ export class MemoryBookCopiesRepository implements BookCopiesRepository, BookCop
   constructor() {
     for (const status of ['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST'] as const) {
       const id = randomUUID();
-      this.copies.set(id, { id, bookId: copiesBookId, inventoryCode: `TEST-${status}`, status });
+      this.copies.set(id, { id, bookId: copiesBookId, inventoryCode: `TEST-${status}`, status, condition: status === 'LOST' ? 'LOST' : 'GOOD', conditionNotes: null });
       if (status === 'RENTED') { this.activeRentals.add(id); this.rentalHistory.add(id); }
       if (status === 'LOST') this.rentalHistory.add(id);
     }
@@ -49,15 +49,15 @@ export class MemoryBookCopiesRepository implements BookCopiesRepository, BookCop
   async hasRentals(copyId: string, activeOnly: boolean) {
     return this.activeRentals.has(copyId) || (!activeOnly && this.rentalHistory.has(copyId));
   }
-  async create(bookId: string, inventoryCode: string) {
-    this.assertUnique(inventoryCode);
-    const copy: BookCopy = { id: randomUUID(), bookId, inventoryCode, status: 'AVAILABLE' };
+  async create(input: NewBookCopy) {
+    this.assertUnique(input.inventoryCode);
+    const copy: BookCopy = { id: randomUUID(), ...input };
     this.copies.set(copy.id, copy);
     return copy;
   }
   async update(copy: BookCopy, input: UpdateBookCopyInput) {
     if (input.inventoryCode !== undefined) this.assertUnique(input.inventoryCode, copy.id);
-    const updated = { ...copy, inventoryCode: input.inventoryCode ?? copy.inventoryCode, status: input.status ?? copy.status };
+    const updated = { ...copy, ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) };
     this.copies.set(copy.id, updated);
     return updated;
   }

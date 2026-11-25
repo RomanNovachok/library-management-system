@@ -8,6 +8,8 @@ import type { BooksRepository } from './modules/books/books.repository.js';
 import type { BookCopiesRepository } from './modules/book-copies/book-copies.repository.js';
 import type { ReadersRepository } from './modules/readers/readers.repository.js';
 import type { AuthRepository } from './modules/auth/auth.repository.js';
+import type { RentalsRepository } from './modules/rentals/rentals.repository.js';
+import type { RentalEventPublisher } from './modules/rentals/rental-events.js';
 
 export type ApiConfig = Pick<Env, 'CORS_ORIGIN'> &
   Partial<Pick<Env, 'NODE_ENV' | 'SESSION_TTL_SECONDS' | 'SESSION_COOKIE_SAME_SITE'>>;
@@ -17,6 +19,8 @@ export interface ApiDependencies {
   bookCopiesRepository?: BookCopiesRepository;
   readersRepository?: ReadersRepository;
   authRepository?: AuthRepository;
+  rentalsRepository?: RentalsRepository;
+  rentalEvents?: RentalEventPublisher;
   now?: () => Date;
 }
 
@@ -32,7 +36,7 @@ export function createApp(
     origin: [config.CORS_ORIGIN],
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Library-Request'],
+    allowedHeaders: ['Content-Type', 'X-Library-Request', 'X-Rental-Terms'],
   }));
   app.use('/api', createApiRouter(config, dependencies));
   app.use(notFound);

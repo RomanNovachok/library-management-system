@@ -7,13 +7,16 @@ import { useAuth } from '../auth/useAuth';
 import { useMutation } from '../hooks/useMutation';
 import { ChangePasswordForm } from './forms/ChangePasswordForm';
 import { FormFeedback } from './forms/FormFeedback';
+import { detailSection, detailTitle } from '../utils/detail-navigation';
 
 function Navigation() {
   const { state } = useAuth();
+  const { pathname } = useLocation();
+  const parent = detailSection(pathname);
   const admin = state.status === 'authenticated' && state.user.role === 'ADMIN';
   return <nav aria-label="Основна навігація" className="grid gap-1">
     {sections.filter((section) => admin || section.path !== '/administration').map((section) => (
-      <NavLink key={section.path} to={section.path} end={!['/books', '/readers'].includes(section.path)} className={({ isActive }) => `flex min-h-12 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${isActive ? 'bg-white/12 text-white' : 'text-emerald-50/75 hover:bg-white/7 hover:text-white'}`}>
+      <NavLink key={section.path} to={section.path} end={parent !== section.path} className={({ isActive }) => `flex min-h-12 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${isActive ? 'bg-white/12 text-white' : 'text-emerald-50/75 hover:bg-white/7 hover:text-white'}`}>
         <Icon name={section.icon} /><span>{section.title}</span>
       </NavLink>
     ))}
@@ -49,15 +52,19 @@ function SessionControls() {
 }
 
 export function AppLayout() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const mainRef = useRef<HTMLElement>(null);
-  const activeSection = sections.find((section) => section.path === pathname || (['/books', '/readers'].includes(section.path) && pathname.startsWith(`${section.path}/`)));
+  const parent = detailSection(pathname);
+  const detail = detailTitle(pathname);
+  const activeSection = sections.find((section) => section.path === pathname || section.path === parent);
+  const listSearch = new URLSearchParams(search);
+  if (parent === '/readers') listSearch.delete('rentalsPage');
 
   useEffect(() => {
-    document.title = `${activeSection?.title ?? 'Сторінку не знайдено'} — Бібліотека`;
+    document.title = `${detail ?? activeSection?.title ?? 'Сторінку не знайдено'} — Бібліотека`;
     mainRef.current?.focus({ preventScroll: true });
     window.scrollTo(0, 0);
-  }, [pathname, activeSection?.title]);
+  }, [pathname, detail, activeSection?.title]);
 
   return <div className="min-h-dvh lg:grid lg:grid-cols-[256px_minmax(0,1fr)]">
     <a href="#main-content" className="skip-link">Перейти до вмісту</a>
@@ -74,7 +81,13 @@ export function AppLayout() {
     <div className="flex min-h-dvh min-w-0 flex-col">
       <header className="border-b border-line bg-white/80">
         <div className="flex min-h-20 flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-8 lg:px-12">
-          <p className="text-sm text-muted"><span className="hidden sm:inline">Бібліотека <span className="mx-3 text-slate-300">/</span></span><span className="font-medium text-ink">{activeSection?.title ?? 'Сторінку не знайдено'}</span></p>
+          <nav aria-label="Шлях до сторінки" className="flex flex-wrap gap-2 text-sm text-muted">
+            <Link to="/dashboard" className="hover:underline">Бібліотека</Link><span aria-hidden="true">/</span>
+            {detail && activeSection ? <>
+              <Link to={{ pathname: activeSection.path, search: listSearch.toString() }} className="hover:underline">{activeSection.title}</Link><span aria-hidden="true">/</span>
+              <span aria-current="page" className="font-medium text-ink">{detail}</span>
+            </> : <span aria-current="page" className="font-medium text-ink">{activeSection?.title ?? 'Сторінку не знайдено'}</span>}
+          </nav>
           <SessionControls />
         </div>
         <details key={pathname} className="group mx-4 mb-4 rounded-2xl bg-pine p-3 lg:hidden">

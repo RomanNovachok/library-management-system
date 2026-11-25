@@ -3,6 +3,7 @@ import type { ApiConfig, ApiDependencies } from '../app.js';
 import { createBooksRouter } from '../modules/books/books.routes.js';
 import { createBookCopiesRouter } from '../modules/book-copies/book-copies.routes.js';
 import { createReadersRouter } from '../modules/readers/readers.routes.js';
+import { createRentalsRouter } from '../modules/rentals/rentals.routes.js';
 import { requireAuth, requireCsrf, requireRole } from '../middleware/staff-auth.js';
 import { AuthController } from '../modules/auth/auth.controller.js';
 import { PrismaAuthRepository } from '../modules/auth/auth.repository.js';
@@ -45,5 +46,6 @@ export function createApiRouter(config: ApiConfig, dependencies: ApiDependencies
   apiRouter.use('/books/:bookId/copies', createBookCopiesRouter(dependencies.bookCopiesRepository));
   apiRouter.use('/books', createBooksRouter(dependencies.booksRepository));
   apiRouter.use(createReadersRouter(dependencies.readersRepository));
+  apiRouter.use(createRentalsRouter(dependencies));
   return apiRouter;
 }

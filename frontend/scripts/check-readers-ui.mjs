@@ -8,6 +8,7 @@ import { createServer as httpServer } from 'node:http';
 import path from 'node:path';
 import { createServer } from 'vite';
 import { register } from '../../backend/node_modules/tsx/dist/esm/api/index.mjs';
+import { rentalFixture } from './rentals-ui-fixture.mjs';
 
 register();
 const { createApp } = await import('../../backend/src/app.ts');
@@ -28,6 +29,8 @@ const books = new MemoryBooksRepository();
 const copies = new MemoryBookCopiesRepository();
 copies.books.set(bookId, { id: bookId, archivedAt: null });
 for (const copy of books.copies) copies.copies.set(copy.id, copy);
+books.copies[0].condition = 'UNKNOWN';
+const rentals = rentalFixture({ books, readers: repository, staff: librarian });
 for (let i = 0; i < 12; i++) await repository.create({ ...validReaderInput, fullName: `Тестовий Читач ${String(i).padStart(2, '0')}`, categoryId: i % 2 ? otherCategoryId : categoryId });
 const requests = [];
 let fault;
@@ -40,12 +43,18 @@ const server = httpServer(async (req, res) => {
   if (req.url === '/api/auth/me' && meDelay) await new Promise((resolve) => setTimeout(resolve, meDelay));
   if (req.method !== 'OPTIONS' && delay && ['POST', 'PATCH'].includes(req.method)) await new Promise((resolve) => setTimeout(resolve, delay));
   if (req.method !== 'OPTIONS' && fault?.match(req)) {
+    if (fault.partial) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true' });
+      res.write('{"data":');
+      setTimeout(() => res.destroy(), 100);
+      return;
+    }
     if (fault.network) { req.socket.destroy(); return; }
     res.writeHead(fault.status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true' });
     res.end(JSON.stringify({ error: { code: fault.code ?? 'TEST_FAILURE' } }));
     return;
   }
-  app(req, res);
+  if (!await rentals(req, res, origin)) app(req, res);
 });
 const vite = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 console.info('Readers browser check: Vite configured');
@@ -79,9 +88,13 @@ try {
       if (match) { clearTimeout(timer); resolve(match[1]); }
     });
   });
-  const targets = await fetch(`http://${new URL(endpoint).host}/json/list`).then((res) => res.json());
+  const targets = await fetch(`http://${new URL(endpoint).host}/json/list`, { signal: AbortSignal.timeout(10000) }).then((res) => res.json());
   socket = new WebSocket(targets.find((target) => target.type === 'page').webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Chrome CDP connection timed out')), 10000);
+    socket.onopen = () => { clearTimeout(timer); resolve(); };
+    socket.onerror = () => { clearTimeout(timer); reject(new Error('Chrome CDP connection failed')); };
+  });
   let nextId = 0;
   const pending = new Map();
   const runtimeErrors = [];
@@ -95,7 +108,13 @@ try {
     }
   };
   const call = (method, params = {}) => new Promise((resolve, reject) => {
-    pending.set(++nextId, { resolve, reject }); socket.send(JSON.stringify({ id: nextId, method, params }));
+    const id = ++nextId;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Chrome CDP timed out: ${method}`)); }, 10000);
+    pending.set(id, {
+      resolve: (result) => { clearTimeout(timer); resolve(result); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    });
+    socket.send(JSON.stringify({ id, method, params }));
   });
   const evaluate = async (expression) => {
     const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -258,8 +277,118 @@ try {
   await click('Редагувати профіль'); await dialogReady();
   assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
   await click('Скасувати', 'dialog'); await closed();
-  assert.deepEqual(runtimeErrors, []);
   console.info('PASS category API recovery, missing category error, 403, offline/empty states, return navigation, mobile layout and no runtime exceptions');
+
+  const dialogText = (value) => `document.querySelector('dialog')?.textContent.includes(${JSON.stringify(value)})`;
+  const selectInDialog = async (index, value) => {
+    await evaluate(`{ const select = document.querySelectorAll('dialog select')[${index}]; const option = [...select.options].find(x => x.textContent.includes(${JSON.stringify(value)})); select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); }`);
+  };
+  const enterText = (selector, value) => evaluate(`{ const input = document.querySelector(${JSON.stringify(selector)}); const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); }`);
+  const comboKey = (index, key) => evaluate(`document.querySelectorAll('dialog [role=combobox]')[${index}].dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true }))`);
+  async function fillIssue() {
+    await click('Видати книгу');
+    await waitFor(`document.querySelectorAll('dialog[open] [role=combobox]').length === 2`);
+    await evaluate(`document.querySelector('dialog [role=combobox]').focus(); document.querySelector('dialog [role=combobox]').click()`);
+    await waitFor(dialogText('Сторінка 1'));
+    await click('Далі', 'dialog');
+    await waitFor(dialogText('Тестовий Читач 11'));
+    await enterText('dialog [role=combobox]', 'Тестовий Читач 11');
+    await waitFor(`document.querySelectorAll('dialog [role=option]').length === 1 && document.querySelector('dialog [role=option]').textContent.includes('11')`);
+    await comboKey(0, 'ArrowDown'); await comboKey(0, 'Enter');
+    await waitFor(`document.querySelector('dialog [role=combobox]').value.includes('11') && document.querySelector('dialog [role=combobox]').getAttribute('aria-expanded') === 'false'`);
+    await evaluate(`{ const book = document.querySelectorAll('dialog [role=combobox]')[1]; book.focus(); book.click(); }`);
+    await waitFor(`document.querySelectorAll('dialog [role=combobox]')[1].getAttribute('aria-expanded') === 'true'`);
+    await enterText('dialog [role=combobox][placeholder="Назва, автор або жанр"]', 'Drama');
+    await waitFor(dialogText('Alpha'));
+    await comboKey(1, 'Escape');
+    await waitFor(`!document.querySelector('dialog [role=listbox]')`);
+    await comboKey(1, 'Enter');
+    await waitFor(dialogText('Alpha'));
+    await evaluate(`[...document.querySelectorAll('dialog [role=option]')].find(e => e.textContent.includes('Alpha')).click()`);
+    await waitFor(`document.querySelectorAll('dialog select')[0]?.options.length === 2`);
+    await selectInDialog(0, 'TEST-0');
+    await waitFor(dialogText('Огляньте примірник перед видачею'));
+    await selectInDialog(1, 'Незначні пошкодження');
+    await enterText('dialog textarea', 'Старий надрив');
+    await evaluate(`{ const input = document.querySelector('dialog input[type=datetime-local]'); const date = new Date(Date.now() + 86400000); const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, local); input.dispatchEvent(new Event('input', { bubbles: true })); }`);
+    await waitFor(dialogText('Підтверджую отримання застави'));
+    assert.ok(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`));
+    await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
+    await waitFor(`!document.querySelector('dialog button[type=submit]').disabled`);
+  }
+  const issueCount = () => requests.filter(({ method, url }) => method === 'POST' && url === '/api/rentals').length;
+  const closeCount = () => requests.filter(({ method, url }) => method === 'POST' && url.endsWith('/close')).length;
+  const previewCount = () => requests.filter(({ method, url }) => method === 'POST' && url.endsWith('/return-preview')).length;
+  const doubleSubmit = () => evaluate(`{ const form = document.querySelector('dialog form'); for (let i = 0; i < 2; i++) form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }`);
+  await navigate('/rentals?status=ACTIVE&pageSize=10');
+  await waitFor(`document.querySelector('main')?.textContent.includes('Прокатів не знайдено')`);
+  await fillIssue();
+  fault = { match: (req) => req.method === 'POST' && req.url === '/api/rentals', status: 409, code: 'RENTAL_COPY_UNAVAILABLE' };
+  await doubleSubmit();
+  await waitFor(dialogText('Цей примірник уже видано'));
+  assert.equal(issueCount(), 1);
+  fault = undefined;
+  await click('Оновити дані', 'dialog'); await closed();
+  await fillIssue(); await doubleSubmit(); await closed();
+  assert.equal(issueCount(), 2);
+  await waitFor(`document.querySelector('main')?.textContent.includes('Книгу видано')`);
+  await evaluate(`[...document.querySelectorAll('main a')].find(a => a.textContent === 'Деталі прокату').click()`);
+  await waitFor(hasButton('Оформити повернення'));
+  const breadcrumb = (text) => `document.querySelector('[aria-label="Шлях до сторінки"] [aria-current=page]')?.textContent === ${JSON.stringify(text)}`;
+  const backLabel = (label) => `document.querySelector('main > a')?.textContent.includes(${JSON.stringify(label)})`;
+  const follow = (label) => evaluate(`[...document.querySelectorAll('main a')].find(a => a.textContent.includes(${JSON.stringify(label)})).click()`);
+  assert.ok(await evaluate(breadcrumb('Деталі прокату')));
+  assert.ok(await evaluate(`document.querySelector('nav[aria-label="Основна навігація"] [href="/rentals"]').getAttribute('aria-current') === 'page'`));
+  const rentalRoute = await evaluate('location.pathname + location.search');
+  await follow('Картка книги та примірники');
+  await waitFor(breadcrumb('Деталі книги')); await waitFor(backLabel('Повернутися до прокату'));
+  await waitFor(`document.querySelector('main').textContent.includes('Старий надрив')`);
+  await follow('Повернутися до прокату'); await waitFor(`location.pathname + location.search === ${JSON.stringify(rentalRoute)}`); await waitFor(hasButton('Оформити повернення'));
+  await follow('Тестовий Читач 11'); await waitFor(breadcrumb('Профіль читача'));
+  const readerRoute = await evaluate('location.pathname');
+  await call('Page.reload'); await waitFor(backLabel('Повернутися до прокату')); await follow('Повернутися до прокату');
+  await waitFor(hasButton('Оформити повернення')); await waitFor(backLabel('Повернутися до прокатів'));
+  await navigate(`${readerRoute}?search=Тестовий&rentalsPage=1`); await waitFor(backLabel('Повернутися до читачів'));
+  await waitFor(`!!document.querySelector('main ul a[href^="/rentals/"]')`);
+  await follow('Alpha'); await waitFor(backLabel('Повернутися до читача'));
+  await follow('Повернутися до читача'); await waitFor(`new URLSearchParams(location.search).get('rentalsPage') === '1'`);
+  await navigate(`${rentalRoute.split('?')[0]}/extra`); await waitFor(breadcrumb('Сторінку не знайдено'));
+  await navigate(rentalRoute); await waitFor(hasButton('Оформити повернення'));
+  await click('Оформити повернення'); await waitFor(dialogText('Старий надрив'));
+  await selectInDialog(0, 'Так');
+  await waitFor(dialogText('Тяжкість нових пошкоджень'));
+  await selectInDialog(1, 'Незначні пошкодження');
+  await selectInDialog(2, 'Серйозні пошкодження');
+  assert.ok(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`));
+  await enterText('dialog textarea', 'Додатковий надрив');
+  await waitFor(dialogText('На обслуговуванні'));
+  await click('Примірник втрачено', 'dialog');
+  await waitFor(dialogText('Підтверджую касовий розрахунок'));
+  assert.ok(await evaluate(dialogText('компенсація за втрату')));
+  await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
+  fault = { match: (req) => req.method === 'POST' && req.url.endsWith('/close'), status: 409, code: 'RENTAL_PREVIEW_CHANGED' };
+  await doubleSubmit(); await waitFor(dialogText('Сума або умови повернення змінилися'));
+  assert.equal(closeCount(), 1);
+  const previewBefore = previewCount();
+  await click('Оновити дані', 'dialog'); await waitFor(dialogText('Підтверджую касовий розрахунок'));
+  assert.equal(previewCount(), previewBefore + 1);
+  assert.ok(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`));
+  await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
+  fault = { match: (req) => req.method === 'POST' && req.url.endsWith('/close'), partial: true };
+  await doubleSubmit(); await waitFor(dialogText('Результат операції невідомий'));
+  await doubleSubmit();
+  assert.equal(closeCount(), 2);
+  assert.ok(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`));
+  fault = undefined;
+  await click('Оновити дані', 'dialog'); await closed(); await waitFor(hasButton('Оформити повернення'));
+  await click('Оформити повернення'); await click('Примірник втрачено', 'dialog'); await waitFor(dialogText('Підтверджую касовий розрахунок'));
+  await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
+  await doubleSubmit(); await closed();
+  assert.equal(closeCount(), 3);
+  await waitFor(`document.querySelector('main')?.textContent.includes('Втрату книги оформлено') && document.querySelector('main')?.textContent.includes('Отримання доплати')`);
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
+  assert.deepEqual(runtimeErrors, []);
+  console.info('PASS Rentals combobox, physical condition, history navigation, breadcrumbs, confirmation, conflicts, stale preview, unknown outcome, LOST and mobile layout');
 } finally {
   clearTimeout(deadline);
   socket?.close();

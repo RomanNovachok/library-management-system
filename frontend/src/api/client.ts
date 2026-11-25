@@ -25,12 +25,13 @@ interface RequestOptions {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   signal: AbortSignal;
   body?: object;
+  headers?: Record<string, string>;
 }
 
 export function requestJson<T>(path: string, options: RequestOptions, validate: (value: unknown) => value is T): Promise<T>;
 export function requestJson(path: string, options: RequestOptions): Promise<void>;
 export async function requestJson<T>(path: string, options: RequestOptions, validate?: (value: unknown) => value is T): Promise<T | void> {
-  const { signal, method, body: requestBody } = options;
+  const { signal, method, body: requestBody, headers } = options;
   const isMutation = method !== 'GET';
   const uncertainMessage = ' Результат операції невідомий. Оновіть дані перед повторною спробою.';
   if (!apiConfig.baseUrl) {
@@ -43,6 +44,7 @@ export async function requestJson<T>(path: string, options: RequestOptions, vali
       signal, method,
       credentials: 'include',
       headers: {
+        ...headers,
         Accept: 'application/json',
         ...(isMutation && { 'X-Library-Request': '1' }),
         ...(requestBody !== undefined && { 'Content-Type': 'application/json' }),

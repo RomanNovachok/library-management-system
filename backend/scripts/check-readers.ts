@@ -75,7 +75,11 @@ async function checkApi(tx: Prisma.TransactionClient) {
     const book = await tx.book.create({ data: { title: 'Умовна тестова книга', author: 'Тест', genre: 'Тест', dailyPrice: new Prisma.Decimal('1'), depositAmount: new Prisma.Decimal('10') } });
     for (const status of ['ACTIVE', 'RETURNED', 'LOST'] as const) {
       stage = `rollback ${status} copy fixture`;
-      const copy = await tx.bookCopy.create({ data: { bookId: book.id, inventoryCode: `${marker}-${status}`, status: status === 'ACTIVE' ? 'RENTED' : status === 'LOST' ? 'LOST' : 'AVAILABLE' } });
+      const copy = await tx.bookCopy.create({ data: {
+        bookId: book.id, inventoryCode: `${marker}-${status}`,
+        status: status === 'ACTIVE' ? 'RENTED' : status === 'LOST' ? 'LOST' : 'AVAILABLE',
+        condition: status === 'LOST' ? 'LOST' : 'UNKNOWN',
+      } });
       stage = `rollback ${status} rental fixture`;
       const rental = await tx.rental.create({ data: {
         readerId: reader.id, copyId: copy.id, issuedById: staff.id, status,

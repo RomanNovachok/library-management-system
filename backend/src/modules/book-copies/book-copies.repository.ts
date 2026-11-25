@@ -1,15 +1,17 @@
 import { Prisma } from '../../generated/prisma/client.js';
 import type { BookCopy, CopyStatus } from '../../generated/prisma/client.js';
 import { ApiError } from '../../lib/api-error.js';
+import { lockBookForCopyWrite, lockBookCopyForWrite } from '../../lib/book-copy-locks.js';
 import type { UpdateBookCopyInput } from './book-copies.schemas.js';
 
 export type CopyBook = { id: string; archivedAt: Date | null };
+export type NewBookCopy = Omit<BookCopy, 'id'>;
 
 export interface BookCopiesWriteRepository {
   lockBook(bookId: string): Promise<CopyBook | null>;
   lockCopy(bookId: string, copyId: string): Promise<BookCopy | null>;
   hasRentals(copyId: string, activeOnly: boolean): Promise<boolean>;
-  create(bookId: string, inventoryCode: string): Promise<BookCopy>;
+  create(input: NewBookCopy): Promise<BookCopy>;
   update(copy: BookCopy, input: UpdateBookCopyInput): Promise<BookCopy>;
   delete(copy: BookCopy): Promise<void>;
 }
@@ -52,21 +54,12 @@ function mapWriteError(error: unknown): never {
 class PrismaBookCopiesWriteRepository implements BookCopiesWriteRepository {
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
-  async lockBook(bookId: string) {
-    // SHARE blocks Book archival, but allows concurrent operations on different copies.
-    const [book] = await this.tx.$queryRaw<CopyBook[]>`
-      SELECT "id", "archivedAt" FROM "Book" WHERE "id" = ${bookId}::uuid FOR SHARE NOWAIT
-    `;
-    return book ?? null;
+  lockBook(bookId: string) {
+    return lockBookForCopyWrite(this.tx, bookId);
   }
 
-  async lockCopy(bookId: string, copyId: string) {
-    // UPDATE also blocks the FK key-share lock of a concurrent Rental insertion.
-    const [copy] = await this.tx.$queryRaw<BookCopy[]>`
-      SELECT "id", "bookId", "inventoryCode", "status" FROM "BookCopy"
-      WHERE "id" = ${copyId}::uuid AND "bookId" = ${bookId}::uuid FOR UPDATE NOWAIT
-    `;
-    return copy ?? null;
+  lockCopy(bookId: string, copyId: string) {
+    return lockBookCopyForWrite(this.tx, bookId, copyId);
   }
 
   async hasRentals(copyId: string, activeOnly: boolean) {
@@ -75,19 +68,22 @@ class PrismaBookCopiesWriteRepository implements BookCopiesWriteRepository {
     }) !== null;
   }
 
-  async create(bookId: string, inventoryCode: string) {
-    return this.tx.bookCopy.create({ data: { bookId, inventoryCode, status: 'AVAILABLE' } });
+  async create(data: NewBookCopy) {
+    return this.tx.bookCopy.create({ data });
   }
 
   async update(copy: BookCopy, input: UpdateBookCopyInput) {
     const result = await this.tx.bookCopy.updateMany({
       where: {
         id: copy.id, bookId: copy.bookId, status: copy.status,
-        ...(input.status !== undefined && { rentals: { none: { status: 'ACTIVE' } } }),
+        ...((input.status !== undefined || input.condition !== undefined || input.conditionNotes !== undefined)
+          && { rentals: { none: { status: 'ACTIVE' } } }),
       },
       data: {
         ...(input.inventoryCode !== undefined && { inventoryCode: input.inventoryCode }),
         ...(input.status !== undefined && { status: input.status }),
+        ...(input.condition !== undefined && { condition: input.condition }),
+        ...(input.conditionNotes !== undefined && { conditionNotes: input.conditionNotes }),
       },
     });
     if (result.count !== 1) throw copyWriteConflict();

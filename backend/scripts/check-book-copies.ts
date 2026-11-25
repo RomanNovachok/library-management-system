@@ -132,7 +132,7 @@ async function checkCrud(tx: Prisma.TransactionClient) {
     await expectConflict(await request(`/${activeCopy.id}`, 'DELETE'), 'COPY_HAS_RENTALS');
     assert.equal((await request(`/${activeCopy.id}`, 'PATCH', { inventoryCode: `${marker}-renamed-active` })).status, 200);
     for (const status of ['RENTED', 'LOST', 'MAINTENANCE'] as const) {
-      await tx.bookCopy.update({ where: { id: second.id }, data: { status } });
+      await tx.bookCopy.update({ where: { id: second.id }, data: { status, condition: status === 'LOST' ? 'LOST' : 'GOOD' } });
       await expectConflict(await request(`/${second.id}`, 'DELETE'), 'COPY_STATUS_CONFLICT');
       if (status !== 'MAINTENANCE') await expectConflict(await request(`/${second.id}`, 'PATCH', { status: 'AVAILABLE' }), 'COPY_STATUS_CONFLICT');
     }
@@ -152,12 +152,14 @@ async function checkCrud(tx: Prisma.TransactionClient) {
 
   // Exercise real FK error mapping with a deliberately missing parent, within a savepoint.
   const repository = transactionalRepository(tx);
-  await assert.rejects(repository.transaction((write) => write.create(randomUUID(), randomUUID())),
+  await assert.rejects(repository.transaction((write) => write.create({
+    bookId: randomUUID(), inventoryCode: randomUUID(), status: 'AVAILABLE', condition: 'GOOD', conditionNotes: null,
+  })),
     (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'COPY_RELATION_CONFLICT');
 }
 
 async function checkConcurrency() {
-  const existing = await prisma.bookCopy.findFirst({ where: { book: { archivedAt: null }, rentals: { none: { status: 'ACTIVE' } } } });
+  const existing = await prisma.bookCopy.findFirst({ where: { status: 'AVAILABLE', book: { archivedAt: null }, rentals: { none: { status: 'ACTIVE' } } } });
   assert.ok(existing, 'Concurrency checks require an existing copy of a non-archived book without an active rental; run the local seed first');
   // Even an unexpectedly successful contender is rolled back, so existing copies can never be deleted by this check.
   const contenderRepository = new PrismaBookCopiesRepository({ db: prisma, transaction: rolledBack });

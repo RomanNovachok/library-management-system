@@ -16,7 +16,7 @@ const id = 'c7c0e4b4-87c4-4c6a-a841-18fdbed10002';
 const copyId = '9d633d29-b0b8-4caf-9781-8c4deff3cf93';
 const input = { title: 'Книга', author: 'Автор', genre: 'Роман', dailyPrice: '4.50', depositAmount: '300.00' };
 const book = { ...input, id, archivedAt: null };
-const copy = { id: copyId, bookId: id, inventoryCode: 'INV', status: 'AVAILABLE' };
+const copy = { id: copyId, bookId: id, inventoryCode: 'INV', status: 'AVAILABLE', condition: 'GOOD', conditionNotes: null };
 
 test('mutation endpoints serialize exact decimal strings and send each HTTP method once', async (t) => {
   const cases = [

@@ -87,19 +87,19 @@ test('CORS omits the allow-origin header for other origins', async () => {
 });
 
 test('CORS handles preflight for the configured origin', async () => {
-  const response = await fetch(`${baseUrl}/api/health`, {
+  const response = await fetch(`${baseUrl}/api/rentals`, {
     method: 'OPTIONS',
     headers: {
       Origin: origin,
-      'Access-Control-Request-Method': 'GET',
-      'Access-Control-Request-Headers': 'Content-Type',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'Content-Type, X-Library-Request, X-Rental-Terms',
     },
   });
 
   assert.equal(response.status, 204);
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
-  assert.match(response.headers.get('access-control-allow-methods') ?? '', /GET/);
-  assert.equal(response.headers.get('access-control-allow-headers'), 'Content-Type,X-Library-Request');
+  assert.match(response.headers.get('access-control-allow-methods') ?? '', /POST/);
+  assert.equal(response.headers.get('access-control-allow-headers'), 'Content-Type,X-Library-Request,X-Rental-Terms');
 });
 
 test('unexpected errors return a JSON 500 without internal details', async (t) => {

@@ -63,6 +63,6 @@ test('POST response contracts accept books without copies and copies with a serv
   const data = { ...validateBookInput(book).data, id, archivedAt: null };
   assert.equal(isBookResponse({ data }), true);
   assert.equal(isBookResponse({ data: { ...data, dailyPrice: 4.5 } }), false);
-  assert.equal(isBookCopyResponse({ data: { id, bookId: id, inventoryCode: 'INV', status: 'AVAILABLE' } }), true);
+  assert.equal(isBookCopyResponse({ data: { id, bookId: id, inventoryCode: 'INV', status: 'AVAILABLE', condition: 'GOOD', conditionNotes: null } }), true);
   assert.equal(isBookCopyResponse({ data: { id, bookId: id, inventoryCode: 'INV', status: 'BAD' } }), false);
 });

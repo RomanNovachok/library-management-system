@@ -52,7 +52,9 @@ try {
       data: { label: 'Edited within rollback test', penaltyPercent: new Prisma.Decimal('21.25'), outcome: DamageOutcome.MAINTENANCE },
     });
     for (const status of [CopyStatus.RENTED, CopyStatus.MAINTENANCE, CopyStatus.LOST]) {
-      await tx.bookCopy.update({ where: { inventoryCode: demoBooks[0].inventoryCodes[0] }, data: { status } });
+      await tx.bookCopy.update({ where: { inventoryCode: demoBooks[0].inventoryCodes[0] }, data: {
+        status, condition: status === CopyStatus.LOST ? 'LOST' : 'GOOD', conditionNotes: null,
+      } });
       const edited = await snapshot(tx);
       await seedLibrary(tx);
       assert.equal(await snapshot(tx), edited, `Seed must preserve edited tariffs, discounts, rules, titles, archive flags and ${status} copy status.`);

@@ -19,6 +19,7 @@ export class MemoryBooksRepository implements BooksRepository {
   ]);
   readonly copies: BookCopy[] = ['AVAILABLE', 'RENTED', 'MAINTENANCE', 'LOST'].map((status, index) => ({
     id: randomUUID(), bookId, inventoryCode: `TEST-${index}`, status: status as BookCopy['status'],
+    condition: status === 'LOST' ? 'LOST' : 'GOOD', conditionNotes: null,
   }));
   readonly rentalHistory = [{ id: randomUUID(), copyId: this.copies[1]!.id, depositSnapshot: '250.00' }];
 

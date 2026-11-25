@@ -19,7 +19,7 @@ export const sections = [
   {
     path: '/rentals', title: 'Прокати', icon: 'rentals',
     description: 'Видача, повернення та облік користування книгами.',
-    plannedFeatures: ['Оформлення видачі примірника', 'Повернення та закриття прокату', 'Перегляд активних і прострочених прокатів'],
+    plannedFeatures: [],
   },
   {
     path: '/reports', title: 'Звіти', icon: 'reports',

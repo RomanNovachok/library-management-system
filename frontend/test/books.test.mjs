@@ -8,7 +8,7 @@ const book = {
   title: 'Лісова пісня', author: 'Леся Українка', genre: 'Драма-феєрія',
   dailyPrice: '5.00', depositAmount: '300.00', archivedAt: null,
 };
-const copy = { id: '9d633d29-b0b8-4caf-9781-8c4deff3cf93', bookId: book.id, inventoryCode: 'INV-0003', status: 'AVAILABLE' };
+const copy = { id: '9d633d29-b0b8-4caf-9781-8c4deff3cf93', bookId: book.id, inventoryCode: 'INV-0003', status: 'AVAILABLE', condition: 'GOOD', conditionNotes: null };
 const catalog = {
   data: [{ ...book, copyCount: 3, availableCopyCount: 2 }],
   pagination: { page: 1, pageSize: 12, total: 1, totalPages: 1 },

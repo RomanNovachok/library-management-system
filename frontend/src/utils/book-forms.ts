@@ -1,4 +1,4 @@
-import type { BookInput, CopyUpdateInput, EditableCopyStatus } from '../api/book-contract';
+import type { BookInput, CopyInput, CopyUpdateInput, EditableCopyStatus } from '../api/book-contract';
 
 export type FieldErrors<T> = Partial<Record<keyof T, string>>;
 
@@ -29,12 +29,14 @@ export function canChangeCopyStatus(status: string): status is EditableCopyStatu
   return status === 'AVAILABLE' || status === 'MAINTENANCE';
 }
 
-export function validateCopyInput(inventoryCode: string, status: string, originalStatus?: string): { data?: CopyUpdateInput; errors: FieldErrors<CopyUpdateInput> } {
+export function validateCopyInput(inventoryCode: string, status: string, originalStatus?: string): {
+  data?: CopyUpdateInput & Pick<CopyInput, 'inventoryCode'>; errors: FieldErrors<CopyUpdateInput>;
+} {
   const errors: FieldErrors<CopyUpdateInput> = {};
   const code = inventoryCode.trim();
   if (!code) errors.inventoryCode = 'Вкажіть інвентарний номер.';
   else if (code.length > 100 || code.includes('\0')) errors.inventoryCode = 'Дозволено 1–100 символів без нульового символу.';
-  const data: CopyUpdateInput = { inventoryCode: code };
+  const data: CopyUpdateInput & Pick<CopyInput, 'inventoryCode'> = { inventoryCode: code };
   if (originalStatus !== undefined) {
     if (canChangeCopyStatus(originalStatus)) {
       if (!canChangeCopyStatus(status)) errors.status = 'Дозволені лише статуси «Доступний» і «На обслуговуванні».';
