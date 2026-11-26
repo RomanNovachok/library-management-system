@@ -7,7 +7,7 @@ export class LoginLimit {
   private readonly counters = new Map<string, { expires: number; attempts: number }>();
   private nextSweep = 0;
 
-  take(email: string, address: string, now: number) {
+  take(email: string, address: string | undefined, now: number) {
     if (now >= this.nextSweep) {
       for (const [key, counter] of this.counters) {
         if (counter.expires <= now) this.counters.delete(key);
@@ -17,7 +17,7 @@ export class LoginLimit {
 
     const keys = [
       { key: 'all', limit: 300 },
-      { key: `ip:${address}`, limit: 40 },
+      ...(address === undefined ? [] : [{ key: `ip:${address}`, limit: 40 }]),
       { key: `email:${email}`, limit: 8 },
     ];
     const counters = keys.map(({ key, limit }) => {

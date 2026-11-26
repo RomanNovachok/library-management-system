@@ -22,18 +22,27 @@ export function createApiRouter(config: ApiConfig, dependencies: ApiDependencies
   const authService = new AuthService(repository, ttl, dependencies.now);
   const auth = new AuthController(authService, cookieName, {
     httpOnly: true, secure, sameSite: secure ? config.SESSION_COOKIE_SAME_SITE ?? 'lax' : 'lax', path: '/api',
-  }, ttl);
+  }, ttl, config.LOGIN_BEHIND_PROXY ?? false);
   const staff = new StaffController(new StaffService(repository, dependencies.now));
   const csrf = requireCsrf(config.CORS_ORIGIN);
   const admin = requireRole('ADMIN');
   const authJson = json({ limit: '8kb' });
 
-  apiRouter.use((_req, res, next) => {
-    res.set('Cache-Control', 'no-store');
-    next();
-  });
   apiRouter.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
+  });
+  apiRouter.get('/ready', async (_req, res) => {
+    try {
+      const check = dependencies.checkReadiness ?? (async () => {
+        const { prisma } = await import('../lib/prisma.js');
+        // Verify the deployed schema as well as connectivity.
+        await prisma.$queryRaw`SELECT 1 FROM "StaffSession" LIMIT 0`;
+      });
+      await check();
+      res.json({ status: 'ready' });
+    } catch {
+      res.status(503).json({ status: 'unavailable' });
+    }
   });
   apiRouter.post('/auth/login', csrf, authJson, auth.login);
   apiRouter.post('/auth/logout', csrf, auth.logout);

@@ -9,11 +9,13 @@ export class AuthController {
     private readonly cookieName: string,
     private readonly cookie: CookieOptions,
     private readonly sessionTtlMs: number,
+    private readonly behindProxy: boolean,
   ) {}
 
   login: RequestHandler = async (req, res) => {
     const { email, password } = parseAuthInput(loginBody, req.body);
-    const { user, token } = await this.service.login(email, password, req.socket.remoteAddress ?? 'unknown', readSessionHash(req, this.cookieName));
+    const address = this.behindProxy ? undefined : req.socket.remoteAddress ?? 'unknown';
+    const { user, token } = await this.service.login(email, password, address, readSessionHash(req, this.cookieName));
     res.cookie(this.cookieName, token, { ...this.cookie, maxAge: this.sessionTtlMs }).status(200).json(user);
   };
 

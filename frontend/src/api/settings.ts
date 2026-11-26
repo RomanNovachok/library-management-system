@@ -20,14 +20,7 @@ const categoryResponse = (value: unknown): value is { data: AdminReaderCategory 
 const ruleResponse = (value: unknown): value is { data: DamageRule } => record(value) && isDamageRule(value.data);
 
 async function saveSetting<T>(path: string, method: 'POST' | 'PATCH', body: object, signal: AbortSignal, validate: (value: unknown) => value is { data: T }) {
-  try {
-    return (await requestJson(path, { method, body, signal }, validate)).data;
-  } catch (error) {
-    if (error instanceof ApiError && error.status !== undefined && error.status >= 500) {
-      throw new ApiError(`${error.message} Оновіть дані перед повторною спробою.`, error.status, error.code, true);
-    }
-    throw error;
-  }
+  return (await requestJson(path, { method, body, signal }, validate)).data;
 }
 
 function updatedItem<T extends { id: string }>(data: T, id: string) {

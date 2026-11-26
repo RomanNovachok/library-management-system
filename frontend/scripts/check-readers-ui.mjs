@@ -64,19 +64,30 @@ const server = httpServer(async (req, res) => {
   }
   if (!await rentals(req, res, origin)) app(req, res);
 });
-const vite = await createServer({ server: { host: '127.0.0.1', port: 0 } });
-console.info('Readers browser check: Vite configured');
+const directApi = process.argv.includes('--direct-api');
+let vite;
 let browser;
 let socket;
 let deadline;
 try {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  // Vite replaces the same public API configuration used by the application.
-  vite.config.define ??= {};
-  vite.config.define['import.meta.env.VITE_API_URL'] = JSON.stringify(`http://127.0.0.1:${server.address().port}/api`);
+  const backend = `http://127.0.0.1:${server.address().port}`;
+  const apiProxy = {
+    target: backend,
+    configure: (proxy) => {
+      proxy.on('proxyRes', (upstream, _request, downstream) => {
+        // Propagate a truncated body so the browser can detect an uncertain write.
+        upstream.once('aborted', () => downstream.destroy());
+      });
+    },
+  };
+  vite = await createServer({
+    define: { 'import.meta.env.VITE_API_URL': JSON.stringify(directApi ? `${backend}/api` : '/api') },
+    server: { host: '127.0.0.1', port: 0, ...(directApi ? {} : { proxy: { '/api': apiProxy } }) },
+  });
   await vite.listen();
-  console.info('Readers browser check: test servers listening');
+  console.info(`Browser check: ${directApi ? 'direct API' : 'same-origin reverse proxy'}`);
   origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
   app = createApp({ CORS_ORIGIN: origin, NODE_ENV: 'development' }, {
     readersRepository: repository, authRepository: auth, booksRepository: books, bookCopiesRepository: copies,
@@ -345,7 +356,8 @@ try {
   await waitFor(`document.querySelector('main [role="alert"]')?.textContent.includes('роль')`);
   fault = { match: (req) => req.url.startsWith('/api/readers'), network: true };
   await navigate('/readers');
-  await waitFor(`document.querySelector('main [role="alert"]')?.textContent.includes('з’єднатися із сервером')`);
+  const connectionError = directApi ? 'з’єднатися із сервером' : 'Сервер тимчасово не може виконати операцію';
+  await waitFor(`document.querySelector('main [role="alert"]')?.textContent.includes(${JSON.stringify(connectionError)})`);
   fault = undefined;
   await navigate('/readers?search=НемаєТакогоЧитача');
   await waitFor(`document.querySelector('main')?.textContent.includes('Читачів не знайдено')`);
@@ -425,7 +437,10 @@ try {
   await follow('Повернутися до прокату'); await waitFor(`location.pathname + location.search === ${JSON.stringify(rentalRoute)}`); await waitFor(hasButton('Оформити повернення'));
   await follow('Тестовий Читач 11'); await waitFor(breadcrumb('Профіль читача'));
   const readerRoute = await evaluate('location.pathname');
-  await call('Page.reload'); await waitFor(backLabel('Повернутися до прокату')); await follow('Повернутися до прокату');
+  const beforeReload = await evaluate('performance.timeOrigin');
+  await call('Page.reload');
+  await waitFor(`performance.timeOrigin > ${beforeReload} && ${backLabel('Повернутися до прокату')}`);
+  await follow('Повернутися до прокату');
   await waitFor(hasButton('Оформити повернення')); await waitFor(backLabel('Повернутися до прокатів'));
   await navigate(`${readerRoute}?search=Тестовий&rentalsPage=1`); await waitFor(backLabel('Повернутися до читачів'));
   await waitFor(`!!document.querySelector('main ul a[href^="/rentals/"]')`);
@@ -481,7 +496,7 @@ try {
   clearTimeout(deadline);
   socket?.close();
   browser?.kill();
-  await vite.close();
+  await vite?.close();
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
 }

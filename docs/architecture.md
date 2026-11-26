@@ -147,8 +147,8 @@ Frontend і backend запускаються локально окремо та 
 
 - **Frontend** — Vercel, коренева папка проєкту `frontend/`.
 - **Backend** — Render Web Service, коренева папка сервісу `backend/`.
-- **PostgreSQL** — окрема керована база даних; провайдера оберемо перед деплоєм. Локально — Docker Compose.
+- **PostgreSQL 18** — Neon для хмарного середовища й Docker Compose для локального.
 
 Під час початкової ініціалізації створюємо окремі `package.json` та lock-файли для `frontend/` і `backend/`. Поки не використовуємо спільні npm workspaces чи спільну папку пакетів: це спростить незалежні збірки на Vercel і Render. Якщо згодом з'явиться реальна потреба в спільних пакетах, повернемося до цього рішення.
 
-Адреса API передається frontend через `VITE_API_URL`, а рядок підключення БД — тільки backend через `DATABASE_URL`. Backend дозволяє CORS для адреси frontend; секрети не потрапляють до репозиторію або клієнтської збірки. Докладніше — у [плані деплою](deployment.md).
+Для хмари `VITE_API_URL=/api`. Vercel пересилає API-запити до фіксованого сервісу Render. Браузер зберігає host-only cookie для домену frontend з `HttpOnly`, `Secure`, `SameSite=Lax` та `Path=/api`. Backend перевіряє точний frontend origin і CSRF-заголовок. Рядок підключення БД зберігається на backend у `DATABASE_URL`. [Інструкція розгортання](deployment.md)

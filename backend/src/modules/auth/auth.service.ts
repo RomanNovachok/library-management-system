@@ -27,7 +27,7 @@ export class AuthService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async login(email: string, password: string, address: string, previousHash?: string) {
+  async login(email: string, password: string, address: string | undefined, previousHash?: string) {
     this.limit.take(email, address, this.now().getTime());
     const account = await this.repository.findByEmail(email);
     const valid = await verifyPassword(password, account?.isActive ? account.passwordHash : undefined);

@@ -178,7 +178,6 @@ package "books — реалізований backend" #E3EAFE {
     Спільний Prisma Client.
     UPDATE лише з archivedAt IS NULL.
     DELETE API змінює лише archivedAt.
-    Решта діаграми — проєктні класи.
   end note
 }
 
@@ -336,27 +335,35 @@ package "Observer — події" #E3EAFE {
     +onRentalEvent(event: RentalEvent): Promise<void>
   }
   class RentalEventPublisher <<Subject>> {
-    +subscribe(subscriber): Unsubscribe
+    +subscribe(subscriber): () => boolean
     +publish(event: RentalEvent): Promise<void>
   }
-  class AuditLogSubscriber <<ConcreteObserver>>
-  interface RentalEvent <<union>> {
+  class AuditLogSubscriber <<ConcreteObserver>> {
+    +onRentalEvent(event: RentalEvent): Promise<void>
+  }
+  interface RentalEvent <<union>>
+  interface RentalEventData {
     rentalId: UUID
     actorId: UUID
     occurredAt: Date
   }
-  interface RentalIssued <<Event>>
+  interface RentalIssued <<Event>> {
+    type: RENTAL_ISSUED
+  }
   interface RentalClosed <<Event>> {
-    status: RentalStatus
+    type: RENTAL_CLOSED
+    status: RETURNED | LOST
     copyStatus: DamageOutcome
     damageRuleId: UUID
     conditionAtIssue: CopyCondition?
     condition: CopyCondition
-    ruleCode: string
+    ruleCode: NONE | MINOR | MAJOR | LOST
     damagePercent: string
   }
   RentalEvent ..> RentalIssued : union member
   RentalEvent ..> RentalClosed : union member
+  RentalEventData <|-- RentalIssued
+  RentalEventData <|-- RentalClosed
   RentalEventSubscriber <|.. AuditLogSubscriber
   RentalEventPublisher o-- RentalEventSubscriber
   RentalEventPublisher ..> RentalEvent
@@ -368,7 +375,7 @@ package "Template Method — генератори звітів" #FFF1D6 {
     +generate(params): Promise<Result>
     #fetchData(params): Promise<Data>
     #aggregate(data): Aggregated
-    #format(data): Result
+    #format(data: Aggregated): Result
   }
   class InventoryReport
   class RentalsReport
@@ -380,8 +387,11 @@ package "Template Method — генератори звітів" #FFF1D6 {
 
 package "Factory Method — творці звітів" #FBE3E9 {
   abstract class "ReportCreator<Params, Result>" as ReportCreator <<Creator>> {
-    +createReport(): Product
+    {abstract} +createReport(): Product<Params, Result>
     +generate(params): Promise<Result>
+  }
+  interface "Product<Params, Result>" as ReportProduct <<structural type>> {
+    +generate(params: Params): Promise<Result>
   }
   class InventoryReportCreator <<ConcreteCreator>>
   class RentalsReportCreator <<ConcreteCreator>>
@@ -392,7 +402,8 @@ package "Factory Method — творці звітів" #FBE3E9 {
   InventoryReportCreator ..> InventoryReport : creates
   RentalsReportCreator ..> RentalsReport : creates
   FinancialReportCreator ..> FinancialReport : creates
-  ReportCreator ..> BaseReport : generates through the product contract
+  ReportCreator ..> ReportProduct : generates through the product contract
+  ReportProduct ..> BaseReport : Pick of generate
 }
 
 package "Reports — читання статистики" #E9F3EB {

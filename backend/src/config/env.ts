@@ -5,6 +5,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   SESSION_TTL_SECONDS: z.coerce.number().int().min(60).max(604800).default(28800),
   SESSION_COOKIE_SAME_SITE: z.enum(['lax', 'none']).default('lax'),
+  LOGIN_BEHIND_PROXY: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   CORS_ORIGIN: z.string().trim().refine((value) => {
     try {
       const url = new URL(value);

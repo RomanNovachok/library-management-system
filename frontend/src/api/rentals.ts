@@ -29,12 +29,7 @@ function unexpectedWriteResponse(status?: number, code?: string) {
 }
 
 async function saveRental(path: string, body: object, signal: AbortSignal, headers?: Record<string, string>) {
-  try {
-    return (await requestJson(path, { method: 'POST', signal, body, headers }, isRentalResponse)).data;
-  } catch (error) {
-    if (error instanceof ApiError && error.status !== undefined && error.status >= 500) throw unexpectedWriteResponse(error.status, error.code);
-    throw error;
-  }
+  return (await requestJson(path, { method: 'POST', signal, body, headers }, isRentalResponse)).data;
 }
 
 export async function issueRental(input: IssueRentalInput, terms: ConditionData & {

@@ -68,6 +68,9 @@ export async function requestJson<T>(path: string, options: RequestOptions, vali
     } catch (error) {
       if (signal.aborted) throw error;
     }
+    if (isMutation && response.status >= 500) {
+      throw new ApiError(`Сервер тимчасово не підтвердив операцію.${uncertainMessage}`, response.status, code, true);
+    }
     throw new ApiError(apiErrorMessage(response.status, code), response.status, code);
   }
 

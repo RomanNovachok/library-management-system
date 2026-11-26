@@ -2,6 +2,7 @@ const configuredUrl = import.meta.env.VITE_API_URL?.trim();
 
 function normalizeApiUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
+  if (value === '/api' || value === '/api/') return '/api';
 
   try {
     const url = new URL(value);
@@ -10,7 +11,7 @@ function normalizeApiUrl(value: string | undefined): string | undefined {
     }
     return url.href.replace(/\/+$/, '');
   } catch {
-    throw new Error('VITE_API_URL must be an absolute HTTP(S) URL without credentials, query parameters or a fragment.');
+    throw new Error('VITE_API_URL must be /api or an absolute HTTP(S) URL without credentials, query parameters or a fragment.');
   }
 }
 

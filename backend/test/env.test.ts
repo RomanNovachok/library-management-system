@@ -5,9 +5,11 @@ import { readEnv } from '../src/config/env.js';
 test('environment configuration applies defaults and parses PORT', () => {
   assert.deepEqual(readEnv({ CORS_ORIGIN: 'https://frontend.example.com' }), {
     NODE_ENV: 'development', PORT: 3000, CORS_ORIGIN: 'https://frontend.example.com',
-    SESSION_TTL_SECONDS: 28800, SESSION_COOKIE_SAME_SITE: 'lax',
+    SESSION_TTL_SECONDS: 28800, SESSION_COOKIE_SAME_SITE: 'lax', LOGIN_BEHIND_PROXY: false,
   });
   assert.equal(readEnv({ CORS_ORIGIN: 'https://frontend.example.com', PORT: '4321' }).PORT, 4321);
+  assert.equal(readEnv({ CORS_ORIGIN: 'https://frontend.example.com', LOGIN_BEHIND_PROXY: 'true' }).LOGIN_BEHIND_PROXY, true);
+  assert.throws(() => readEnv({ CORS_ORIGIN: 'https://frontend.example.com', LOGIN_BEHIND_PROXY: 'yes' }), /LOGIN_BEHIND_PROXY/);
 });
 
 test('session configuration bounds expiry and requires HTTPS for production cookies', () => {

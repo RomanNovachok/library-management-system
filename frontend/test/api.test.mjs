@@ -77,3 +77,9 @@ test('DELETE expects an empty 204 and aborted requests preserve cancellation', a
   t.mock.method(globalThis, 'fetch', async (_url, options) => { options.signal.throwIfAborted(); });
   await assert.rejects(api.createBook(input, controller.signal), { name: 'AbortError' });
 });
+
+test('proxy gateway errors leave writes uncertain and preserve the status', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response('<html>Gateway timeout</html>', { status: 504 }));
+  await assert.rejects(api.createBook(input, new AbortController().signal), { status: 504, outcomeUnknown: true });
+  assert.equal(fetch.mock.callCount(), 1);
+});

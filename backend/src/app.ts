@@ -14,7 +14,7 @@ import type { ReportsRepository } from './modules/reports/reports.repository.js'
 import type { SettingsRepository } from './modules/settings/settings.repository.js';
 
 export type ApiConfig = Pick<Env, 'CORS_ORIGIN'> &
-  Partial<Pick<Env, 'NODE_ENV' | 'SESSION_TTL_SECONDS' | 'SESSION_COOKIE_SAME_SITE'>>;
+  Partial<Pick<Env, 'NODE_ENV' | 'SESSION_TTL_SECONDS' | 'SESSION_COOKIE_SAME_SITE' | 'LOGIN_BEHIND_PROXY'>>;
 
 export interface ApiDependencies {
   booksRepository?: BooksRepository;
@@ -25,6 +25,7 @@ export interface ApiDependencies {
   rentalEvents?: RentalEventPublisher;
   reportsRepository?: ReportsRepository;
   settingsRepository?: SettingsRepository;
+  checkReadiness?: () => Promise<void>;
   now?: () => Date;
 }
 
@@ -36,6 +37,10 @@ export function createApp(
 
   app.disable('x-powered-by');
   app.set('trust proxy', false);
+  app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
   app.use(cors({
     origin: [config.CORS_ORIGIN],
     credentials: true,

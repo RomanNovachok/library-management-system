@@ -80,7 +80,7 @@ export const demoBooks = [
   },
 ] as const;
 
-async function assertAppliedMigrations(tx: Prisma.TransactionClient): Promise<void> {
+export async function assertAppliedMigrations(tx: Prisma.TransactionClient): Promise<void> {
   const directory = new URL('./migrations/', import.meta.url);
   const expected = (await readdir(directory, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -94,7 +94,7 @@ async function assertAppliedMigrations(tx: Prisma.TransactionClient): Promise<vo
     || completed.length !== expected.length
     || completed.some((row) => !expected.includes(row.migration_name))
   ) {
-    throw new SeedSafetyError('Seed requires all local migrations to be successfully applied. Check prisma:migrate:status.');
+    throw new SeedSafetyError('Initialization requires all repository migrations to be successfully applied. Check prisma:migrate:status.');
   }
   for (const name of expected) {
     const script = await readFile(new URL(`${name}/migration.sql`, directory), 'utf8');
