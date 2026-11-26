@@ -5,6 +5,7 @@ import { createBookCopiesRouter } from '../modules/book-copies/book-copies.route
 import { createReadersRouter } from '../modules/readers/readers.routes.js';
 import { createRentalsRouter } from '../modules/rentals/rentals.routes.js';
 import { createReportsRouter } from '../modules/reports/reports.routes.js';
+import { createSettingsRouter } from '../modules/settings/settings.routes.js';
 import { requireAuth, requireCsrf, requireRole } from '../middleware/staff-auth.js';
 import { AuthController } from '../modules/auth/auth.controller.js';
 import { PrismaAuthRepository } from '../modules/auth/auth.repository.js';
@@ -44,6 +45,7 @@ export function createApiRouter(config: ApiConfig, dependencies: ApiDependencies
   apiRouter.post('/staff', admin, authJson, staff.create);
   apiRouter.patch('/staff/:id', admin, authJson, staff.update);
   apiRouter.post('/staff/:id/reset-password', admin, authJson, staff.resetPassword);
+  apiRouter.use('/settings', admin, createSettingsRouter(dependencies.settingsRepository, dependencies.now));
   apiRouter.use('/books/:bookId/copies', createBookCopiesRouter(dependencies.bookCopiesRepository));
   apiRouter.use('/books', createBooksRouter(dependencies.booksRepository));
   apiRouter.use(createReadersRouter(dependencies.readersRepository));

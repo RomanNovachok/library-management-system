@@ -2,13 +2,11 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { readdir, readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Client } from 'pg';
-import { assertLocalSeedTarget, damageRules } from '../prisma/seed-library.js';
+import type { Client } from 'pg';
+import { damageRules } from '../prisma/seed-library.js';
 import { createApp } from '../src/app.js';
-import { PrismaClient } from '../src/generated/prisma/client.js';
+import type { PrismaClient } from '../src/generated/prisma/client.js';
 import { PrismaAuthRepository } from '../src/modules/auth/auth.repository.js';
 import { sessionHash } from '../src/modules/auth/auth.service.js';
 import { PrismaBooksRepository } from '../src/modules/books/books.repository.js';
@@ -19,6 +17,7 @@ import { PrismaRentalsRepository } from '../src/modules/rentals/rentals.reposito
 import type { RentalsService } from '../src/modules/rentals/rentals.service.js';
 import type { ReturnPreviewInput } from '../src/modules/rentals/rentals.schemas.js';
 import { databaseSnapshot } from './database-snapshot.js';
+import { withIsolatedDatabase } from './isolated-database.js';
 import { staffRequestHeaders } from '../test/helpers/auth.repository.js';
 
 type Details = Awaited<ReturnType<RentalsService['details']>>;
@@ -360,48 +359,4 @@ async function checkHttp(db: PrismaClient, sql: Client) {
   }
 }
 
-async function main() {
-  assertLocalSeedTarget();
-  const connectionString = process.env.DATABASE_URL!;
-  const sql = new Client({ connectionString });
-  const live = new PrismaClient({ adapter: new PrismaPg({ connectionString }, { schema: 'public' }) });
-  const schema = `rentals_check_${randomUUID().replaceAll('-', '')}`;
-  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString, options: `-c search_path=${schema}` }, { schema }) });
-  await sql.connect();
-  let before: string | undefined;
-  let created = false;
-  try {
-    const { rows: [identity] } = await sql.query('SELECT current_database() AS database, current_user AS username');
-    assert.deepEqual(identity, { database: 'library_db', username: 'library_user' });
-    before = await databaseSnapshot(live);
-    await sql.query(`CREATE SCHEMA "${schema}"`);
-    created = true;
-    await sql.query(`SET search_path TO "${schema}"`);
-    const migrations = new URL('../prisma/migrations/', import.meta.url);
-    for (const entry of (await readdir(migrations, { withFileTypes: true })).filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-      const migration = await readFile(new URL(`${entry.name}/migration.sql`, migrations), 'utf8');
-      await sql.query(migration.replace('CREATE SCHEMA IF NOT EXISTS "public";', ''));
-    }
-    const [target] = await db.$queryRaw<{ schema: string }[]>`SELECT current_schema() AS schema`;
-    assert.equal(target?.schema, schema);
-    await checkHttp(db, sql);
-  } finally {
-    await db.$disconnect();
-    try {
-      if (created) {
-        await sql.query('ROLLBACK');
-        await sql.query(`DROP SCHEMA "${schema}" CASCADE`);
-        assert.equal((await sql.query('SELECT to_regnamespace($1) AS name', [schema])).rows[0]?.name, null);
-      }
-      if (before !== undefined) {
-        assert.equal(await databaseSnapshot(live) === before, true, 'Operational table contents changed during the check');
-        console.info('Temporary schema removed. Verified unchanged rows in all ten application tables in public.');
-      }
-    } finally {
-      await live.$disconnect();
-      await sql.end();
-    }
-  }
-}
-
-await main();
+await withIsolatedDatabase('rentals', checkHttp);

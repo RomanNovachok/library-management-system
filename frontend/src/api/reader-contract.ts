@@ -12,13 +12,13 @@ const text = (value: unknown): value is string => typeof value === 'string' && v
 export const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const date = (value: unknown): value is string => text(value) && Number.isFinite(Date.parse(value));
-function category(value: unknown): value is ReaderCategory {
+export function isReaderCategory(value: unknown): value is ReaderCategory {
   return record(value) && uuid(value.id) && text(value.name) && typeof value.discountPercent === 'string'
     && /^(?:(?:0|[1-9]\d?)\.\d{2}|100\.00)$/.test(value.discountPercent);
 }
 function reader(value: unknown): value is Reader {
   return record(value) && uuid(value.id) && text(value.fullName) && text(value.address) && text(value.phone)
-    && uuid(value.categoryId) && category(value.category) && value.categoryId.toLowerCase() === value.category.id.toLowerCase();
+    && uuid(value.categoryId) && isReaderCategory(value.category) && value.categoryId.toLowerCase() === value.category.id.toLowerCase();
 }
 function rental(value: unknown): value is ReaderRental {
   return record(value) && uuid(value.id) && uuid(value.readerId) && ['ACTIVE', 'RETURNED', 'LOST'].includes(String(value.status))
@@ -34,4 +34,4 @@ export function isPage<T>(value: unknown, item: (value: unknown) => value is T):
 export const isReadersResponse = (value: unknown): value is Page<Reader> => isPage(value, reader);
 export const isReaderRentalsResponse = (value: unknown): value is Page<ReaderRental> => isPage(value, rental);
 export const isReaderResponse = (value: unknown): value is { data: Reader } => record(value) && reader(value.data);
-export const isReaderCategoriesResponse = (value: unknown): value is { data: ReaderCategory[] } => record(value) && Array.isArray(value.data) && value.data.every(category);
+export const isReaderCategoriesResponse = (value: unknown): value is { data: ReaderCategory[] } => record(value) && Array.isArray(value.data) && value.data.every(isReaderCategory);

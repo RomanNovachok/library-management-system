@@ -42,6 +42,7 @@ export interface RentalsReadData {
 }
 
 export interface RentalsWriteData extends RentalsReadData {
+  lockDamageRule(code: string): Promise<DamageRule | null>;
   readerTerms(id: string): Promise<{ name: string; discountPercent: Prisma.Decimal } | null>;
   copyBookId(id: string): Promise<string | null>;
   lockBook(id: string): ReturnType<typeof lockBookForCopyWrite>;
@@ -97,6 +98,12 @@ class PrismaRentalsData implements RentalsWriteData {
 
   findDamageRule(code: string) {
     return this.db.damageRule.findUnique({ where: { code } });
+  }
+
+  async lockDamageRule(code: string) {
+    // Hold the current rule through settlement and the cash movement commit.
+    const [rule] = await this.db.$queryRaw<DamageRule[]>`SELECT * FROM "DamageRule" WHERE "code" = ${code} FOR SHARE`;
+    return rule ?? null;
   }
 
   async readerTerms(id: string) {

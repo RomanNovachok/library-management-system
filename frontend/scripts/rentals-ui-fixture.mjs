@@ -2,13 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
 // HTTP fixtures exercise React without a database. The separate backend check uses real Prisma transactions.
-export function rentalFixture({ books, readers, staff }) {
-  const rules = [
-    { id: randomUUID(), code: 'NONE', label: 'Без пошкоджень', penaltyPercent: '0.00', outcome: 'AVAILABLE' },
-    { id: randomUUID(), code: 'MINOR', label: 'Незначні пошкодження', penaltyPercent: '10.00', outcome: 'AVAILABLE' },
-    { id: randomUUID(), code: 'MAJOR', label: 'Серйозні пошкодження', penaltyPercent: '50.00', outcome: 'MAINTENANCE' },
-    { id: randomUUID(), code: 'LOST', label: 'Втрачено', penaltyPercent: '100.00', outcome: 'LOST' },
-  ];
+export function rentalFixture({ books, readers, staff, settings, Decimal }) {
   const previewVersion = 'a'.repeat(64);
   let rental;
   const reply = (res, data, origin, status = 200) => {
@@ -19,6 +13,7 @@ export function rentalFixture({ books, readers, staff }) {
     const url = new URL(req.url, origin);
     const path = url.pathname;
     if (req.method === 'OPTIONS' || !(path === '/api/damage-rules' || /^\/api\/rentals(?:\/|$)/.test(path))) return false;
+    const rules = (await settings.damageRules()).map((rule) => ({ ...rule, penaltyPercent: rule.penaltyPercent.toFixed(2) }));
     if (path === '/api/damage-rules') reply(res, { data: rules }, origin);
     else if (req.method === 'GET' && path === '/api/rentals') {
       const page = Number(url.searchParams.get('page'));
@@ -67,13 +62,15 @@ export function rentalFixture({ books, readers, staff }) {
         const condition = lost ? 'LOST' : assessment.condition ?? rental.conditionAtIssue;
         const newDamageNotes = assessment.newDamageNotes ?? null;
         const conditionNotes = [rental.conditionNotesAtIssue, newDamageNotes].filter(Boolean).join('\n') || null;
+        const deposit = new Decimal(rental.depositSnapshot);
+        const fine = deposit.times(rule.penaltyPercent).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+        const charges = fine.plus(rental.pricePerDaySnapshot);
         const quote = {
           rentalId: rental.id, damageRuleId: rule.id, condition, conditionNotes, newDamageNotes,
           copyStatus: lost ? 'LOST' : condition === 'MAJOR_DAMAGE' ? 'MAINTENANCE' : body.copyStatus ?? 'AVAILABLE',
           status: lost ? 'LOST' : 'RETURNED', billableDays: 1, damagePercent: rule.penaltyPercent,
-          deposit: '250.00', rentalFee: '4.50', damageFine: lost ? '250.00' : newDamageNotes ? '25.00' : '0.00',
-          charges: lost ? '254.50' : newDamageNotes ? '29.50' : '4.50',
-          refundAmount: lost ? '0.00' : newDamageNotes ? '220.50' : '245.50', additionalPayment: lost ? '4.50' : '0.00', previewVersion,
+          deposit: deposit.toFixed(2), rentalFee: rental.pricePerDaySnapshot, damageFine: fine.toFixed(2), charges: charges.toFixed(2),
+          refundAmount: Decimal.max(deposit.minus(charges), 0).toFixed(2), additionalPayment: Decimal.max(charges.minus(deposit), 0).toFixed(2), previewVersion,
         };
         if (path.endsWith('/return-preview')) reply(res, { data: quote }, origin);
         else {

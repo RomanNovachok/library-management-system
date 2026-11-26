@@ -26,7 +26,7 @@ rectangle "Library Management System" {
   usecase "Керувати книгами\nі примірниками" as ManageBooks
   usecase "Оновити стан\nпісля ремонту" as Repair
   usecase "Керувати категоріями\nчитачів і знижками" as ManageCategories
-  usecase "Керувати штрафними\nправилами" as ManageFines
+  usecase "Редагувати назви правил і\nставки MINOR та MAJOR" as ManageFines
   usecase "Керувати працівниками" as Staff
 }
 Librarian --> Login

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { listStaff, roleLabels } from '../api/staff';
 import { useAuth } from '../auth/useAuth';
 import { ErrorState, LoadingState } from '../components/ApiFeedback';
+import { AdministrationSettings } from '../components/AdministrationSettings';
 import { StaffForm, type StaffDialog } from '../components/forms/StaffForm';
 import { useApiResource } from '../hooks/useApiResource';
 
@@ -34,10 +35,7 @@ export function AdministrationPage() {
         </li>)}
       </ul>}
     </section>
-    <section className="mt-6 rounded-3xl border border-line bg-white p-5 sm:p-7">
-      <h2 className="text-xl font-semibold">Інші налаштування</h2>
-      <p className="mt-2 text-sm text-muted">Категорії читачів, штрафи й системні налаштування ще не реалізовано.</p>
-    </section>
+    <AdministrationSettings checkSession={checkSession} />
     {dialog && <StaffForm dialog={dialog} onClose={() => setDialog(undefined)} onRefresh={checkSession} onSaved={(account) => {
       if (dialog.kind !== 'create' && state.status === 'authenticated' && state.user.id === dialog.account.id) {
         if (!account?.isActive || state.user.role !== account.role) setUser(undefined);

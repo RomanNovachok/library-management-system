@@ -87,7 +87,7 @@ function staff(value: unknown): value is Staff {
 function ruleLabel(value: unknown): value is RuleLabel {
   return record(value) && uuid(value.id) && text(value.code) && text(value.label);
 }
-function rule(value: unknown): value is DamageRule {
+export function isDamageRule(value: unknown): value is DamageRule {
   return ruleLabel(value) && record(value) && percent(value.penaltyPercent) && isReturnCopyStatus(value.outcome);
 }
 function movement(value: unknown): value is CashMovement {
@@ -118,5 +118,5 @@ function preview(value: unknown): value is ReturnPreview {
 }
 export const isRentalsResponse = (value: unknown) => isPage(value, summary);
 export const isRentalResponse = (value: unknown): value is { data: RentalDetails } => record(value) && details(value.data);
-export const isDamageRulesResponse = (value: unknown): value is { data: DamageRule[] } => record(value) && Array.isArray(value.data) && value.data.every(rule);
+export const isDamageRulesResponse = (value: unknown): value is { data: DamageRule[] } => record(value) && Array.isArray(value.data) && value.data.every(isDamageRule);
 export const isReturnPreviewResponse = (value: unknown): value is { data: ReturnPreview } => record(value) && preview(value.data);

@@ -15,6 +15,7 @@ register();
 const { createApp } = await import('../../backend/src/app.ts');
 const { MemoryReadersRepository, validReaderInput, categoryId, otherCategoryId } = await import('../../backend/test/helpers/readers.repository.ts');
 const { MemoryAuthRepository } = await import('../../backend/test/helpers/auth.repository.ts');
+const { memorySettingsRepository } = await import('../../backend/test/helpers/settings.repository.ts');
 const { MemoryBooksRepository, bookId } = await import('../../backend/test/helpers/books.repository.ts');
 const { MemoryBookCopiesRepository } = await import('../../backend/test/helpers/book-copies.repository.ts');
 const { hashPassword } = await import('../../backend/src/modules/auth/passwords.ts');
@@ -33,7 +34,8 @@ const copies = new MemoryBookCopiesRepository();
 copies.books.set(bookId, { id: bookId, archivedAt: null });
 for (const copy of books.copies) copies.copies.set(copy.id, copy);
 books.copies[0].condition = 'UNKNOWN';
-const rentals = rentalFixture({ books, readers: repository, staff: librarian });
+const settings = memorySettingsRepository(auth, repository);
+const rentals = rentalFixture({ books, readers: repository, staff: librarian, settings, Decimal: Prisma.Decimal });
 const reports = reportsFixture({ empty: emptyReportsData, decimal: (value) => new Prisma.Decimal(value), books });
 for (let i = 0; i < 12; i++) await repository.create({ ...validReaderInput, fullName: `Тестовий Читач ${String(i).padStart(2, '0')}`, categoryId: i % 2 ? otherCategoryId : categoryId });
 const requests = [];
@@ -78,7 +80,7 @@ try {
   origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
   app = createApp({ CORS_ORIGIN: origin, NODE_ENV: 'development' }, {
     readersRepository: repository, authRepository: auth, booksRepository: books, bookCopiesRepository: copies,
-    reportsRepository: memoryReportsRepository(reports.data),
+    reportsRepository: memoryReportsRepository(reports.data), settingsRepository: settings,
   });
   const cache = path.resolve('node_modules/.cache');
   await mkdir(cache, { recursive: true });
@@ -199,6 +201,69 @@ try {
   await fill('dialog', { password: resetPassword });
   await click('Зберегти зміни', 'dialog'); await closed();
 
+  const categorySection = 'section[aria-labelledby="reader-categories-title"]';
+  const ruleSection = 'section[aria-labelledby="damage-rules-title"]';
+  const sectionText = (scope, text) => `document.querySelector(${JSON.stringify(scope)})?.textContent.includes(${JSON.stringify(text)})`;
+  const editRow = (scope, name) => evaluate(`{
+    const row = [...document.querySelectorAll(${JSON.stringify(`${scope} li`)})].find((item) => item.textContent.includes(${JSON.stringify(name)}));
+    row.querySelector('button').click();
+  }`);
+  const settingsPosts = () => requests.filter(({ method, url }) => method === 'POST' && url === '/api/settings/reader-categories').length;
+  const categoryName = 'Категорія браузерної перевірки';
+  await waitFor(sectionText(categorySection, 'Читачів 6'));
+  await click('Додати категорію', categorySection);
+  await fill('dialog', { name: '   ', percent: '25,50' });
+  const settingsBefore = settingsPosts();
+  await click('Зберегти', 'dialog');
+  await waitFor(sectionText('dialog [role="alert"]', 'Укажіть назву'));
+  await fill('dialog', { name: 'Категорія  браузерної перевірки', percent: '100,01' });
+  await click('Зберегти', 'dialog');
+  await waitFor(sectionText('dialog [role="alert"]', 'Укажіть відсоток'));
+  assert.equal(settingsPosts(), settingsBefore);
+  await fill('dialog', { percent: '25,50' });
+  delay = 275;
+  await evaluate(`{ const form = document.querySelector('dialog form'); form.requestSubmit(); form.requestSubmit(); }`);
+  await waitFor(`document.querySelector('dialog button[type="submit"]')?.disabled === true`);
+  await closed(); delay = 0;
+  assert.equal(settingsPosts(), settingsBefore + 1);
+  await waitFor(sectionText(categorySection, categoryName));
+  await waitFor(sectionText(categorySection, '25,50% · Читачів 0'));
+  await editRow(categorySection, categoryName);
+  await waitFor(sectionText('dialog', 'Зміна знижки застосовуватиметься до нових прокатів'));
+  await fill('dialog', { name: 'Інша тестова категорія' });
+  await click('Зберегти', 'dialog');
+  await waitFor(sectionText('dialog [role="alert"]', 'Категорія з такою назвою вже існує'));
+  await fill('dialog', { name: categoryName, percent: '30' });
+  await click('Зберегти', 'dialog'); await closed();
+  await waitFor(sectionText(categorySection, '30,00% · Читачів 0'));
+  await editRow(categorySection, categoryName);
+  await fill('dialog', { percent: '31' });
+  fault = { match: (req) => req.method === 'PATCH' && req.url.startsWith('/api/settings/reader-categories/'), status: 500 };
+  await click('Зберегти', 'dialog');
+  await waitFor(sectionText('dialog [role="alert"]', 'Оновіть дані перед повторною спробою'));
+  assert.ok(await evaluate(`document.querySelector('dialog button[type="submit"]').disabled`));
+  fault = undefined;
+  await click('Оновити дані', 'dialog'); await closed();
+  await waitFor(sectionText(categorySection, '30,00% · Читачів 0'));
+
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
+  await editRow(ruleSection, 'Без пошкоджень');
+  assert.ok(await evaluate(`document.querySelector('dialog input[name="percent"]').disabled`));
+  await waitFor(sectionText('dialog', 'штраф завжди становить 0%'));
+  await click('Скасувати', 'dialog'); await closed();
+  await editRow(ruleSection, 'Втрачено книгу');
+  assert.ok(await evaluate(`document.querySelector('dialog input[name="percent"]').disabled`));
+  await waitFor(sectionText('dialog', 'компенсація завжди дорівнює всій заставі'));
+  await click('Скасувати', 'dialog'); await closed();
+  await editRow(ruleSection, 'Незначне пошкодження');
+  await fill('dialog', { name: 'Незначні пошкодження обкладинки', percent: '15' });
+  await click('Зберегти', 'dialog'); await closed();
+  await waitFor(sectionText(ruleSection, 'Незначні пошкодження обкладинки · 15,00%'));
+  await call('Emulation.clearDeviceMetricsOverride');
+  await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  console.info('PASS Settings create, validate, duplicate submit, duplicate name, edit, fixed-rate controls and mobile layout');
+
   await navigate('/dashboard');
   await waitFor(`!!document.querySelector('main a[href="/administration"]')`);
   await click('Вийти', 'header'); await loginReady();
@@ -221,6 +286,8 @@ try {
   console.info('PASS login, private route, duplicate submit, reload, ADMIN/LIBRARIAN UI, staff forms, logout and revoked session redirect');
 
   await navigate('/readers?pageSize=10&page=2'); await ready();
+  const hasNewCategory = (selector) => `[...document.querySelectorAll(${JSON.stringify(`${selector} option`)})].some(option => option.textContent.includes(${JSON.stringify(categoryName)}))`;
+  await waitFor(hasNewCategory('#reader-category-filter'));
   assert.equal(await evaluate(`document.querySelectorAll('section ul > li').length`), 2);
   await field('reader-search', 'Тестовий Читач 01'); await ready();
   await waitFor(`document.querySelectorAll('section ul > li').length === 1`);
@@ -230,6 +297,7 @@ try {
   assert.equal(await evaluate(`new URLSearchParams(location.search).get('categoryId')`), categoryId);
   await field('reader-category-filter', ''); await ready();
   await click('Додати читача'); await dialogReady();
+  await waitFor(hasNewCategory('#reader-categoryId'));
   const postBefore = count('POST');
   await click('Зареєструвати читача', 'dialog');
   await waitFor(`document.querySelectorAll('dialog [aria-invalid="true"]').length === 4`);
@@ -248,6 +316,7 @@ try {
   await waitFor(`document.querySelector('h1')?.textContent === 'Умовний Новий Читач' && document.querySelector('main')?.textContent.includes('ще немає прокатів')`);
   assert.ok(await evaluate(`document.querySelector('main').textContent.includes('12,50%')`));
   await click('Редагувати профіль'); await dialogReady();
+  await waitFor(hasNewCategory('#reader-categoryId'));
   assert.equal(await evaluate(`document.getElementById('reader-address').value`), 'Умовна адреса 2');
   await field('reader-categoryId', categoryId); await field('reader-phone', '0000000003');
   const patchBefore = count('PATCH'); delay = 300;
@@ -367,7 +436,7 @@ try {
   await click('Оформити повернення'); await waitFor(dialogText('Старий надрив'));
   await selectInDialog(0, 'Так');
   await waitFor(dialogText('Тяжкість нових пошкоджень'));
-  await selectInDialog(1, 'Незначні пошкодження');
+  await selectInDialog(1, 'Незначні пошкодження обкладинки · 15,00%');
   await selectInDialog(2, 'Серйозні пошкодження');
   assert.ok(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`));
   await enterText('dialog textarea', 'Додатковий надрив');

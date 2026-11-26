@@ -1,4 +1,5 @@
 import type { CopyCondition, DamageOutcome, Prisma, RentalStatus } from '../../generated/prisma/client.js';
+import { writeAuditLog } from '../../lib/audit-log.js';
 
 interface RentalEventData {
   rentalId: string;
@@ -47,8 +48,7 @@ export class AuditLogSubscriber implements RentalEventSubscriber {
   constructor(private readonly database?: Pick<Prisma.TransactionClient, 'auditLog'>) {}
 
   async onRentalEvent(event: RentalEvent) {
-    const db = this.database ?? (await import('../../lib/prisma.js')).prisma;
-    await db.auditLog.create({ data: {
+    await writeAuditLog({
       actorId: event.actorId,
       action: event.type,
       entityType: 'Rental',
@@ -59,6 +59,6 @@ export class AuditLogSubscriber implements RentalEventSubscriber {
         conditionAtIssue: event.conditionAtIssue, conditionAtReturn: event.condition,
         ruleCode: event.ruleCode, damagePercent: event.damagePercent,
       } }),
-    } });
+    }, this.database);
   }
 }

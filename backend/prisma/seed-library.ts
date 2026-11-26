@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { CopyStatus, DamageOutcome, Prisma } from '../src/generated/prisma/client.js';
+import { lockStaffWrites } from '../src/modules/auth/auth.repository.js';
+import { readerCategoryNameExists } from '../src/modules/settings/settings.repository.js';
 
 export class SeedSafetyError extends Error {}
 
@@ -119,8 +121,10 @@ export async function seedLibrary(tx: Prisma.TransactionClient) {
   // Serialize seed transactions; the lock is released automatically on commit/rollback.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('library_management_initial_seed'))`;
 
+  // Use the same name comparison and lock as administrative category writes.
+  await lockStaffWrites(tx);
   for (const data of readerCategories) {
-    await tx.readerCategory.upsert({ where: { name: data.name }, create: data, update: {} });
+    if (!await readerCategoryNameExists(tx, data.name)) await tx.readerCategory.create({ data });
   }
   for (const data of damageRules) {
     await tx.damageRule.upsert({ where: { code: data.code }, create: data, update: {} });

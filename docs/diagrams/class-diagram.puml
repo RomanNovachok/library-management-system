@@ -291,6 +291,46 @@ package "Strategy — знижки" #DFF1E5 {
   RentalCalculator --> DiscountStrategy : delegates
 }
 
+package "Settings" {
+  class SettingsController {
+    +readerCategories()
+    +createCategory()
+    +updateCategory()
+    +damageRules()
+    +updateDamageRule()
+  }
+  class SettingsService {
+    +readerCategories(): CategoryWithReaderCount[]
+    +createCategory(tokenHash, input)
+    +updateCategory(tokenHash, id, patch)
+    +damageRules(): DamageRule[]
+    +updateDamageRule(tokenHash, id, patch)
+  }
+  interface SettingsRepository {
+    +readerCategories()
+    +damageRules()
+    +transaction(operation)
+    +recordAudit(data)
+  }
+  class PrismaSettingsRepository
+  SettingsController --> SettingsService
+  SettingsService --> SettingsRepository
+  SettingsRepository <|.. PrismaSettingsRepository
+  PrismaSettingsRepository ..> ReaderCategory : reads and updates
+  PrismaSettingsRepository ..> DamageRule : reads and updates
+  note right of SettingsService
+    Під час запису повторно перевіряє
+    чинну сесію й роль ADMIN.
+    Аудит записується після коміту.
+  end note
+}
+
+class "audit-log.ts" as AuditLogWriter <<module>> {
+  +writeAuditLog(data, database?)
+}
+PrismaSettingsRepository ..> AuditLogWriter
+AuditLogWriter ..> AuditLog : writes
+
 package "Observer — події" #E3EAFE {
   interface RentalEventSubscriber <<Observer>> {
     +onRentalEvent(event: RentalEvent): Promise<void>
@@ -320,7 +360,7 @@ package "Observer — події" #E3EAFE {
   RentalEventSubscriber <|.. AuditLogSubscriber
   RentalEventPublisher o-- RentalEventSubscriber
   RentalEventPublisher ..> RentalEvent
-  AuditLogSubscriber ..> AuditLog : writes
+  AuditLogSubscriber ..> AuditLogWriter
 }
 
 package "Template Method — генератори звітів" #FFF1D6 {
@@ -428,7 +468,7 @@ package "Rentals — видача і повернення" {
   RentalsRepository <|.. PrismaRentalsRepository
   PrismaRentalsRepository ..> Rental : reads and writes
   PrismaRentalsRepository ..> BookCopy : locks and updates
-  PrismaRentalsRepository ..> DamageRule : reads
+  PrismaRentalsRepository ..> DamageRule : reads and locks at closure
   PrismaRentalsRepository ..> CashMovement : records
 }
 RentalsService ..> RentalCalculator : shares between preview and close

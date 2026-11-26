@@ -49,10 +49,11 @@ function requireActive(rental: RentalForReturn | null) {
   return rental;
 }
 
-async function calculateSettlement(db: RentalsReadData, rental: Rental, closedAt: Date, input: ReturnPreviewInput) {
+async function calculateSettlement(findRule: RentalsReadData['findDamageRule'], rental: Rental, input: ReturnPreviewInput, now: () => Date) {
   const { ruleCode, copyStatus, condition, conditionNotes, newDamageNotes } = conditionForReturn(rental, input);
-  const rule = await db.findDamageRule(ruleCode);
+  const rule = await findRule(ruleCode);
   if (!rule) throw new ApiError(404, 'DAMAGE_RULE_NOT_FOUND', 'Правило пошкодження не знайдено');
+  const closedAt = now();
   const status: 'LOST' | 'RETURNED' = condition === 'LOST' ? 'LOST' : 'RETURNED';
   const penaltyPercent = ruleCode === 'NONE' ? new Prisma.Decimal(0) : rule.penaltyPercent;
   const discount = rental.discountPercentSnapshot.isZero()
@@ -67,7 +68,7 @@ async function calculateSettlement(db: RentalsReadData, rental: Rental, closedAt
     refundAmount: amounts.refundAmount.toFixed(2), additionalPayment: amounts.additionalPayment.toFixed(2),
   } as const;
   const previewVersion = fingerprint(quote);
-  return { amounts, quote: { ...quote, previewVersion }, penaltyPercent, ruleCode };
+  return { amounts, quote: { ...quote, previewVersion }, penaltyPercent, ruleCode, closedAt };
 }
 
 export class RentalsService {
@@ -136,7 +137,7 @@ export class RentalsService {
     return this.repository.read(async (db) => {
       const rental = requireActive(await db.findForReturn(id));
       this.assertRentedCopy(rental.copy.status);
-      return (await calculateSettlement(db, rental, this.now(), input)).quote;
+      return (await calculateSettlement((code) => db.findDamageRule(code), rental, input, this.now)).quote;
     });
   }
 
@@ -149,8 +150,7 @@ export class RentalsService {
       if (!copy) throw missingCopy();
       const rental = requireActive(await db.findForReturn(id));
       this.assertRentedCopy(copy.status);
-      const closedAt = this.now();
-      const { amounts, quote, penaltyPercent, ruleCode } = await calculateSettlement(db, rental, closedAt, input);
+      const { amounts, quote, penaltyPercent, ruleCode, closedAt } = await calculateSettlement((code) => db.lockDamageRule(code), rental, input, this.now);
       if (input.previewVersion !== quote.previewVersion) {
         throw new ApiError(409, 'RENTAL_PREVIEW_CHANGED', 'Розрахунок змінився. Отримайте новий розрахунок');
       }

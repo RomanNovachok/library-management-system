@@ -67,7 +67,7 @@ export function ReturnRentalForm({ rental, onClose, onRefresh, onSaved }: {
     clearConfirmation();
   }
   function resetPreview() {
-    clearConfirmation(); preview.retry();
+    clearConfirmation(); preview.retry(); rules.retry();
   }
 
   return <Modal title={lost ? 'Оформити втрату книги' : 'Оформити повернення'} pending={mutation.pending} onClose={dismiss}>
@@ -108,7 +108,7 @@ export function ReturnRentalForm({ rental, onClose, onRefresh, onSaved }: {
             }}>
               <option value="">Виберіть тяжкість</option>
               {rules.resource.data.filter(({ code }) => code === 'MINOR' || code === 'MAJOR').map((rule) =>
-                <option key={rule.id} value={rule.code}>{rule.label} · {rentalPercent(rule.penaltyPercent)}</option>)}
+                <option key={rule.id} value={rule.code}>{rule.label} · {rentalPercent(quote?.damageRuleId === rule.id ? quote.damagePercent : rule.penaltyPercent)}</option>)}
             </select>
           </label>}
           <label className="block text-sm font-medium">Загальний фізичний стан після повернення

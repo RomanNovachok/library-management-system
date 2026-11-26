@@ -11,6 +11,7 @@ import type { AuthRepository } from './modules/auth/auth.repository.js';
 import type { RentalsRepository } from './modules/rentals/rentals.repository.js';
 import type { RentalEventPublisher } from './modules/rentals/rental-events.js';
 import type { ReportsRepository } from './modules/reports/reports.repository.js';
+import type { SettingsRepository } from './modules/settings/settings.repository.js';
 
 export type ApiConfig = Pick<Env, 'CORS_ORIGIN'> &
   Partial<Pick<Env, 'NODE_ENV' | 'SESSION_TTL_SECONDS' | 'SESSION_COOKIE_SAME_SITE'>>;
@@ -23,6 +24,7 @@ export interface ApiDependencies {
   rentalsRepository?: RentalsRepository;
   rentalEvents?: RentalEventPublisher;
   reportsRepository?: ReportsRepository;
+  settingsRepository?: SettingsRepository;
   now?: () => Date;
 }
 

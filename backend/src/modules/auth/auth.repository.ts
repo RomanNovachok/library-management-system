@@ -100,6 +100,11 @@ class PrismaAuthData implements AuthWriteData {
 
 type TransactionRunner = <T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
 
+export async function lockStaffWrites(tx: Prisma.TransactionClient): Promise<void> {
+  // Serialize privileged writes with staff updates and session issuance/revocation across processes.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(17291, 1)`;
+}
+
 export class PrismaAuthRepository extends PrismaAuthData implements AuthRepository {
   constructor(connection?: Prisma.TransactionClient, private readonly runner?: TransactionRunner) {
     super(connection);
@@ -112,8 +117,7 @@ export class PrismaAuthRepository extends PrismaAuthData implements AuthReposito
     });
     try {
       return await run(async (tx) => {
-        // Serialize staff writes and session issuance/revocation across processes.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(17291, 1)`;
+        await lockStaffWrites(tx);
         return operation(new PrismaAuthData(tx));
       });
     } catch (error) {

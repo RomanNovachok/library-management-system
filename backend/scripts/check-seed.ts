@@ -42,6 +42,14 @@ try {
     await seedLibrary(tx);
     assert.equal(await snapshot(tx), original, 'A repeated seed must preserve every existing catalog row.');
 
+    const originalName = readerCategories[0].name;
+    const lowerName = originalName.toLowerCase();
+    await tx.readerCategory.update({ where: { name: originalName }, data: { name: lowerName } });
+    const caseEdited = await snapshot(tx);
+    await seedLibrary(tx);
+    assert.equal(await snapshot(tx), caseEdited, 'Seed must preserve a case-only category rename without adding a duplicate.');
+    await tx.readerCategory.update({ where: { name: lowerName }, data: { name: originalName } });
+
     await tx.book.update({
       where: { id: demoBooks[0].id },
       data: { title: 'Edited within rollback test', dailyPrice: new Prisma.Decimal('19.75'), depositAmount: new Prisma.Decimal('999.99'), archivedAt: new Date('2026-01-01T00:00:00Z') },

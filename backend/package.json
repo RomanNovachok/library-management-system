@@ -25,6 +25,7 @@
     "db:check-auth": "npm run prisma:generate && tsx scripts/check-auth.ts",
     "db:check-rentals": "npm run prisma:generate && tsx scripts/check-rentals.ts",
     "db:check-reports": "npm run prisma:generate && tsx scripts/check-reports.ts",
+    "db:check-settings": "npm run prisma:generate && tsx scripts/check-settings.ts",
     "db:migrate-condition-check": "npm run prisma:generate && tsx scripts/check-condition-migration.ts",
     "auth:bootstrap-admin": "npm run prisma:generate && tsx scripts/bootstrap-admin.ts",
     "db:preflight": "tsx scripts/check-schema.ts --expect-empty",
